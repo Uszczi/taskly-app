@@ -11,9 +11,10 @@
 # After Claude, a step with no model and no secrets checks what changed on disk
 # and reruns the tests itself; the model's report is shown, never trusted.
 #
-# Runs on the same events as pr-test-agent.yml, next to it, with its own PR
-# comment so both can be compared. Whichever finishes first commits its tests;
-# the other sees the branch moved and only reports (see "Commit generated tests").
+# Runs only for PRs from claude/* branches; pr-test-agent.yml takes pydantic/*,
+# so each PR gets one engine. To compare them, open the same change from both
+# prefixes. If both ever run on one branch, the first to finish commits its tests
+# and the other sees the branch moved and only reports (see "Commit generated tests").
 name: PR test agent (Claude Code)
 
 on:
@@ -28,7 +29,9 @@ permissions: {}
 
 jobs:
   generate:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'claude/')
     runs-on: ubuntu-24.04
     environment: CI
     timeout-minutes: 30
