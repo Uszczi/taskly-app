@@ -1,10 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, it, vi } from 'vitest'
+import { beforeEach, expect, it, vi } from 'vitest'
+import { Card } from '../../../design-system'
 import { todoFixture } from '../../../test/todoFixture'
 import { TodoItem } from './TodoItem'
 
 vi.mock('../../../design-system', () => import('../../../design-system/mocks'))
+
+beforeEach(() => vi.clearAllMocks())
 
 it('shows an active task and forwards edit requests', async () => {
   const user = userEvent.setup()
@@ -31,3 +34,24 @@ it('shows an active task and forwards edit requests', async () => {
   expect(onToggle).not.toHaveBeenCalled()
   expect(onDelete).not.toHaveBeenCalled()
 })
+
+it.each([
+  ['low', 'neutral'],
+  ['medium', 'info'],
+  ['high', 'warning'],
+] as const)(
+  'tints a %s priority task with the %s card tone',
+  (priority, tone) => {
+    render(
+      <TodoItem
+        todo={{ ...todoFixture, priority }}
+        busy={false}
+        onEdit={vi.fn()}
+        onToggle={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+    const [props] = vi.mocked(Card).mock.lastCall ?? []
+    expect(props).toMatchObject({ tone })
+  },
+)
