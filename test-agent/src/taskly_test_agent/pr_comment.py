@@ -28,8 +28,8 @@ _STATUS = {
 }
 
 _FILE = re.compile(r"^diff --git a/.+ b/(.+)$")
-_JS_TEST = re.compile(r"""^\+\s*(?:it|test)(?:\.\w+)?\(\s*(['"`])(.+?)\1""")
-_PY_TEST = re.compile(r"^\+\s*(?:async\s+)?def\s+test_(\w+)\s*\(")
+_JS_TEST = re.compile(r"""^([+-])\s*(?:it|test)(?:\.\w+)?\(\s*(['"`])(.+?)\2""")
+_PY_TEST = re.compile(r"^([+-])\s*(?:async\s+)?def\s+test_(\w+)\s*\(")
 
 
 def _safe(text: str) -> str:
@@ -39,17 +39,32 @@ def _safe(text: str) -> str:
 
 
 def added_tests(patch: str) -> dict[str, list[str]]:
-    """Names of the tests a patch adds, per test file, in patch order."""
-    tests: dict[str, list[str]] = {}
+    """Names of the tests a patch adds, per test file, in patch order.
+
+    A name the patch also removes from the same file is an existing test that
+    was moved or rewritten (say, wrapped in a new describe), not a new one.
+    """
+    added: dict[str, list[str]] = {}
+    removed: dict[str, set[str]] = {}
     path = None
     for line in patch.splitlines():
         if match := _FILE.match(line):
             path = match.group(1)
-        elif path and (match := _JS_TEST.match(line)):
-            tests.setdefault(path, []).append(match.group(2))
-        elif path and (match := _PY_TEST.match(line)):
-            tests.setdefault(path, []).append(match.group(1).replace("_", " "))
-    return tests
+            continue
+        if path is None:
+            continue
+        if match := _JS_TEST.match(line):
+            sign, name = match.group(1), match.group(3)
+        elif match := _PY_TEST.match(line):
+            sign, name = match.group(1), match.group(2).replace("_", " ")
+        else:
+            continue
+        if sign == "+":
+            added.setdefault(path, []).append(name)
+        else:
+            removed.setdefault(path, set()).add(name)
+    tests = {path: [n for n in names if n not in removed.get(path, set())] for path, names in added.items()}
+    return {path: names for path, names in tests.items() if names}
 
 
 def _footer(usage: str) -> str:

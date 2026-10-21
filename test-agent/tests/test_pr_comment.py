@@ -33,6 +33,21 @@ diff --git a/backend/tests/test_x.py b/backend/tests/test_x.py
 USAGE = "── usage: anthropic:claude-haiku-5-5 ──\nrequests:        7\ncost:            $0.007696\n"
 
 
+def test_moved_or_rewritten_tests_are_not_counted_as_added() -> None:
+    patch = """\
+diff --git a/frontend/src/a/Item.test.tsx b/frontend/src/a/Item.test.tsx
+-it('shows an active task', async () => {
++describe('Item', () => {
++  it('shows an active task', async () => {
++  it('tints the card', () => {
+diff --git a/backend/tests/test_x.py b/backend/tests/test_x.py
+-def test_lists_todos(client):
++def test_lists_todos(client, todo):
+"""
+
+    assert added_tests(patch) == {"frontend/src/a/Item.test.tsx": ["tints the card"]}
+
+
 def test_added_tests_reads_new_test_names_per_file() -> None:
     assert added_tests(PATCH) == {
         "frontend/src/a/Item.test.tsx": ["tints the card by priority", "skipped one"],
