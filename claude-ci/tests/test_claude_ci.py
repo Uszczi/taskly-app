@@ -157,9 +157,40 @@ def test_paths_with_spaces_are_read_as_is(repo: Path) -> None:
 
 
 def test_frontend_tests_are_typechecked_too(repo: Path) -> None:
-    targets = [t for t, _, _ in commands(repo, ["frontend/src/a.test.ts", "backend/tests/test_a.py", "backend/tests/__init__.py"])]
+    targets = [t for t, _, _ in commands(repo, ["frontend/src/a.test.ts", "backend/tests/test_a.py"])]
 
     assert targets == ["backend", "frontend", "typecheck"]
+
+
+def test_only_the_written_tests_run_when_no_shared_code_changed(repo: Path) -> None:
+    [(_, _, backend), (_, _, frontend), _] = commands(repo, ["backend/tests/test_a.py", "frontend/src/a.test.ts"])
+
+    assert backend[-1] == "backend/tests/test_a.py" and frontend[-1] == "src/a.test.ts"
+
+
+@pytest.mark.parametrize(
+    ("shared", "target", "argv_tail"),
+    [
+        ("backend/tests/conftest.py", "backend", "backend/tests"),
+        ("backend/tests/mocks.py", "backend", "backend/tests"),
+        ("frontend/src/test/queryClient.tsx", "frontend", "run"),  # vitest with no filter: every test
+    ],
+)
+def test_shared_test_code_reruns_the_whole_suite(repo: Path, shared: str, target: str, argv_tail: str) -> None:
+    written = [shared, "backend/tests/test_a.py" if target == "backend" else "frontend/src/a.test.ts"]
+
+    [argv] = [argv for t, _, argv in commands(repo, written) if t == target]
+
+    assert argv[-1] == argv_tail
+
+
+def test_shared_frontend_helpers_are_writable(repo: Path) -> None:
+    (repo / "frontend/src/test").mkdir(parents=True)
+    (repo / "frontend/src/test/queryClient.tsx").write_text("export {}\n")
+    (repo / "frontend/src/App.tsx").parent.mkdir(parents=True, exist_ok=True)
+    (repo / "frontend/src/App.tsx").write_text("export {}\n")
+
+    assert disk_changes(repo) == (["frontend/src/test/queryClient.tsx"], ["frontend/src/App.tsx"])
 
 
 @pytest.fixture

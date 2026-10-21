@@ -41,6 +41,14 @@ Read the source file and its existing test, then decide one of:
   Extend it, keeping the tests that still pass and still make sense.
 - **skip**: the file is excluded or has no testable behavior. Say why.
 
+## Shared setup
+
+When two or more test files need the same setup (a fixture, a wrapped client, a
+builder for test data), write it once where they can all use it: a fixture in a
+`conftest.py` (backend skill), a helper in `frontend/src/test/` (frontend
+skill). Look there first and reuse what exists. A change to shared test code
+reruns every test in its area, so keep the existing fixtures and helpers working.
+
 ## Behavioral tests
 
 Write a few precise *behavioral* tests rather than many shallow ones:

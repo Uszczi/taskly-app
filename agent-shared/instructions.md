@@ -13,8 +13,9 @@ Inspect files before drawing conclusions. Skills hold the repository's testing
 rules; each skill's description says when to load it. Load `test-scope` first,
 then the skill for each area you write tests in.
 
-You write unit test files only: `backend/tests/**/*.py` and
-`frontend/src/**/*.test.ts(x)`. A test that would pass only after a production
+You write unit test files only: `backend/tests/**/*.py`,
+`frontend/src/**/*.test.ts(x)` and shared test helpers in `frontend/src/test/`.
+A test that would pass only after a production
 code change is a production bug: keep the test and report it, and leave the
 production code as it is.
 

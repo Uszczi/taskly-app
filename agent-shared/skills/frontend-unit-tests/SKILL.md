@@ -15,6 +15,8 @@ description: Conventions for writing Vitest + React Testing Library unit tests f
 
 ## Shared helpers
 
+- `src/test/` holds what several test files share. Add a helper or fixture
+  there instead of repeating it, and reuse what is already there.
 - `src/test/todoFixture.ts` exports `todoFixture: Todo`. Spread and override it
   (`{ ...todoFixture, completed: true }`) instead of building todos by hand.
 - Design-system components are mocked with their own module. Every component
@@ -35,18 +37,28 @@ description: Conventions for writing Vitest + React Testing Library unit tests f
 ## Hooks
 
 - Plain hooks: `renderHook(() => useThing())` and `act(...)` for updates.
-- TanStack Query hooks (`useTodosQuery`, `use*Mutation`) need a provider. Create
-  a fresh client per test with retries off and pass a wrapper:
+- TanStack Query hooks (`useTodosQuery`, `use*Mutation`) need a provider with a
+  fresh client per test, retries off. Use `createQueryWrapper` from
+  `src/test/queryClient.tsx`; if that file does not exist yet, create it:
 
 ```tsx
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+
+export function createQueryWrapper() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  )
+  return { client, wrapper }
 }
 ```
 
-  Mock the API layer (`vi.mock('../api/todos', ...)`).
-  To assert cache updates, keep a reference to the client and read
+  `const { client, wrapper } = createQueryWrapper()`, then
+  `renderHook(() => useThing(), { wrapper })`. Mock the API layer
+  (`vi.mock('../api/todos', ...)`). To assert cache updates, read
   `client.getQueryData(todoKeys.list)`.
 
 ## Example

@@ -216,6 +216,7 @@ jobs:
           git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
             case "$path" in
               backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) continue ;;
+              frontend/src/test/*.ts | frontend/src/test/*.tsx) continue ;; # shared test helpers
             esac
             echo "::error::patch touches a file that is not a test: $path"
             exit 1

@@ -23,11 +23,21 @@ TIMEOUT_SECONDS = 600
 
 
 def is_writable_test(path: str) -> bool:
+    """Test files and the shared test code next to them: fixtures, mocks, helpers."""
     if path in PROTECTED:
         return False
     if path.startswith("backend/tests/") and path.endswith(".py"):
         return True
+    if path.startswith("frontend/src/test/") and path.endswith((".ts", ".tsx")):
+        return True
     return path.startswith("frontend/src/") and path.endswith((".test.ts", ".test.tsx"))
+
+
+def is_test_file(path: str) -> bool:
+    """A file the runner collects tests from, as opposed to shared test code."""
+    if path.startswith("backend/"):
+        return Path(path).name.startswith("test_")
+    return path.endswith((".test.ts", ".test.tsx"))
 
 
 def disk_changes(repo: Path) -> tuple[list[str], list[str]]:
@@ -59,14 +69,20 @@ def sandboxed(repo: Path, cwd: Path, argv: list[str]) -> list[str]:
 
 
 def commands(repo: Path, written: list[str]) -> list[Command]:
-    """(target, cwd, argv) for each run the written files need."""
-    backend = [p for p in written if p.startswith("backend/") and Path(p).name != "__init__.py"]
-    frontend = [p.removeprefix("frontend/") for p in written if p.startswith("frontend/")]
+    """(target, cwd, argv) for each run the written files need.
+
+    Shared test code (a conftest.py, mocks, a helper in frontend/src/test/) can
+    break tests Claude never touched, so changing any reruns the area's whole suite.
+    """
+    backend = [p for p in written if p.startswith("backend/")]
+    frontend = [p for p in written if p.startswith("frontend/")]
     runs: list[Command] = []
     if backend:
-        runs.append(("backend", repo, ["backend/.venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *backend]))
+        paths = backend if all(is_test_file(p) for p in backend) else ["backend/tests"]
+        runs.append(("backend", repo, ["backend/.venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *paths]))
     if frontend:
-        runs.append(("frontend", repo / "frontend", ["node_modules/.bin/vitest", "run", *frontend]))
+        tests = [p.removeprefix("frontend/") for p in frontend] if all(is_test_file(p) for p in frontend) else []
+        runs.append(("frontend", repo / "frontend", ["node_modules/.bin/vitest", "run", *tests]))
         # vitest strips types without checking them, so a test that does not compile can pass.
         runs.append(("typecheck", repo / "frontend", ["node_modules/.bin/tsc", "--noEmit", "-p", "."]))
     return runs

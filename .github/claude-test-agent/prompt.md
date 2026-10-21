@@ -27,8 +27,8 @@ Your turns are limited, and the task already holds each file's diff.
 Every file you write is final: you cannot delete or rename it. All of them are
 rerun together, with the typecheck, and if any fails, none is committed. So:
 
-- create files only at the test paths the task lists, plus a `conftest.py`
-  where the backend skill calls for one;
+- create files only at the test paths the task lists, plus the shared fixtures
+  and helpers the skills call for;
 - keep a failing test only for a production bug you are sure of, and name the
   bug in `attention`: the PR then shows the failure instead of new tests.
 
