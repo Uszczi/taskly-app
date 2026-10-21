@@ -10,7 +10,8 @@
       "Edit(frontend/src/**/*.test.ts)",
       "Edit(frontend/src/**/*.test.tsx)",
       "Bash(backend/.venv/bin/python -m pytest *)",
-      "Bash(frontend/node_modules/.bin/vitest run --root frontend *)"
+      "Bash(frontend/node_modules/.bin/vitest run --root frontend *)",
+      "Bash(frontend/node_modules/.bin/tsc --noEmit -p frontend)"
     ],
     "deny": [
       "Read(**/.env*)",

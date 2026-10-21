@@ -163,3 +163,38 @@ def test_sandbox_can_be_disabled_inside_an_isolated_container(repo: Path, monkey
     monkeypatch.setenv(sandbox.UNSANDBOXED_ENV, "1")
 
     assert run_tests(repo, "backend", ["backend/tests/test_ok.py"]).passed
+
+
+def test_frontend_run_passes_only_when_tests_and_typecheck_pass(repo: Path, monkeypatch) -> None:
+    results = {"vitest": (0, "1 passed"), "tsc": (2, "src/a.test.ts(1,7): error TS2322")}
+    calls = []
+
+    def fake_execute(argv, repo_root, cwd):
+        tool = Path(argv[0]).name
+        calls.append(tool)
+        return results[tool]
+
+    monkeypatch.setattr(runner, "_execute", fake_execute)
+
+    failed = run_tests(repo, "frontend", ["frontend/src/a.test.ts"])
+    results["tsc"] = (0, "")
+    passed = run_tests(repo, "frontend", ["frontend/src/a.test.ts"])
+
+    assert calls == ["vitest", "tsc", "vitest", "tsc"]
+    assert not failed.passed and failed.exit_code == 2 and "error TS2322" in failed.output
+    assert passed.passed and "No type errors." in passed.output
+
+
+def test_failing_vitest_keeps_its_exit_code_over_typecheck(repo: Path, monkeypatch) -> None:
+    monkeypatch.setattr(runner, "_execute", lambda argv, *_: (1, "") if "vitest" in argv[0] else (2, ""))
+
+    assert run_tests(repo, "frontend", ["frontend/src/a.test.ts"]).exit_code == 1
+
+
+def test_backend_run_has_no_typecheck(repo: Path, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(runner, "_execute", lambda argv, *_: calls.append(argv) or (0, ""))
+
+    run_tests(repo, "backend", ["backend/tests/test_ok.py"])
+
+    assert len(calls) == 1

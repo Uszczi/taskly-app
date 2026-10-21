@@ -159,9 +159,12 @@ def run_tests(ctx: RunContext[Deps], target: Target, paths: list[str]) -> str:
 
     Run the files you wrote or changed. Fix failing tests you wrote; if a test
     fails because the production code is wrong, keep the test and report it.
+    A frontend run also typechecks the project with `tsc --noEmit` and passes
+    only when both pass: fix type errors in your test files too. After you
+    finish, every file you wrote is rerun together, so end on a run of all of them.
 
     Args:
-        target: `backend` (pytest) or `frontend` (vitest).
+        target: `backend` (pytest) or `frontend` (vitest, then tsc).
         paths: Test files relative to the repository root, e.g.
             `backend/tests/api/test_health.py` or `frontend/src/hooks/useX.test.ts`.
     """

@@ -101,8 +101,13 @@ def _tail(text: str) -> str:
     return "... [truncated]\n" + text[-MAX_OUTPUT_CHARS:]
 
 
-def run_tests(repo_root: Path, target: Target, paths: list[str]) -> TestRun:
-    argv, cwd, files = build_command(repo_root, target, paths)
+def typecheck_command(repo_root: Path) -> tuple[list[str], Path]:
+    """`tsc --noEmit` over the frontend project, test files included (tsconfig `include`)."""
+    frontend = repo_root.resolve() / "frontend"
+    return [str(frontend / "node_modules/.bin/tsc"), "--noEmit", "-p", "."], frontend
+
+
+def _execute(argv: list[str], repo_root: Path, cwd: Path) -> tuple[int | None, str]:
     env = {key: os.environ[key] for key in _ENV_ALLOWLIST if key in os.environ}
     env["NO_COLOR"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"  # the repo is read-only in the sandbox
@@ -119,9 +124,23 @@ def run_tests(repo_root: Path, target: Target, paths: list[str]) -> TestRun:
             timeout=TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
-        return TestRun(target, files, None, f"Timed out after {TIMEOUT_SECONDS}s")
+        return None, f"Timed out after {TIMEOUT_SECONDS}s"
     except SandboxUnavailable as exc:
-        return TestRun(target, files, 126, str(exc))
+        return 126, str(exc)
     except FileNotFoundError as exc:
-        return TestRun(target, files, 127, f"Test runner not installed: {exc.filename}")
-    return TestRun(target, files, proc.returncode, _tail(proc.stdout + proc.stderr))
+        return 127, f"Test runner not installed: {exc.filename}"
+    return proc.returncode, _tail(proc.stdout + proc.stderr)
+
+
+def run_tests(repo_root: Path, target: Target, paths: list[str]) -> TestRun:
+    """Run the tests; for the frontend, also typecheck, and pass only when both pass."""
+    argv, cwd, files = build_command(repo_root, target, paths)
+    code, output = _execute(argv, repo_root, cwd)
+    if target == "frontend":
+        # vitest strips types without checking them, so a test that does not compile can pass.
+        tsc_argv, tsc_cwd = typecheck_command(repo_root)
+        tsc_code, tsc_output = _execute(tsc_argv, repo_root, tsc_cwd)
+        output += f"\n--- tsc --noEmit (exit code {tsc_code}) ---\n{tsc_output or 'No type errors.'}"
+        if code == 0:
+            code = tsc_code
+    return TestRun(target, files, code, output)

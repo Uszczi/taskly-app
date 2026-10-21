@@ -187,6 +187,10 @@ jobs:
             sandboxed "$PWD/frontend" node_modules/.bin/vitest run "${fe[@]}" \
               > "$OUT_DIR/frontend.log" 2>&1 && code=0 || code=$?
             runs=$(jq -c --arg c "$code" '. + [{target: "frontend", exit_code: ($c|tonumber)}]' <<< "$runs")
+            # vitest strips types without checking them, so a test that does not compile can pass.
+            sandboxed "$PWD/frontend" node_modules/.bin/tsc --noEmit -p . \
+              > "$OUT_DIR/typecheck.log" 2>&1 && code=0 || code=$?
+            runs=$(jq -c --arg c "$code" '. + [{target: "typecheck", exit_code: ($c|tonumber)}]' <<< "$runs")
           fi
           tail -n 30 "$OUT_DIR"/*.log 2>/dev/null || true
 
@@ -252,7 +256,9 @@ jobs:
                agent_failed: "❌ Claude Code failed or gave no report",
                nothing_to_test: "✅ No changed source file needs unit tests"}[$v.status] as $status
             | (if $r then [$r.decisions[] | select(.action == "skip")] else [] end) as $skipped
-            | ([$v.runs[] | select(.exit_code != 0) | "\(.target) tests fail when rerun without the model (exit \(.exit_code))."]
+            | ([$v.runs[] | select(.exit_code != 0)
+                | if .target == "typecheck" then "Frontend typecheck (`tsc --noEmit`) fails; see typecheck.log in the run artifacts."
+                  else "\(.target) tests fail when rerun without the model (exit \(.exit_code))." end]
                + [$v.violations[] | "`\(safe)` is not a test file; nothing was committed."]
                + (if $r then [$r.attention[]? | safe] else [] end)) as $attention
             | ["<!-- taskly-test-agent:claude -->", "## 🧪 Test agent (Claude Code): \($status)", "",
