@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
@@ -24,3 +24,14 @@ def test_get_returns_none_for_missing_task():
     session.get.return_value = None
     assert TodoRepository(session).get(404) is None
     session.get.assert_called_once_with(TodoRecord, 404)
+
+
+def test_delete_completed_removes_only_completed_tasks_and_returns_count():
+    session = Mock(spec=Session)
+    session.execute.return_value.rowcount = 3
+    assert TodoRepository(session).delete_completed() == 3
+    statement = session.execute.call_args.args[0]
+    assert statement.compare(delete(TodoRecord).where(TodoRecord.completed.is_(True)))
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert compiled.startswith("DELETE FROM todos WHERE todos.completed IS true")
+    session.commit.assert_called_once_with()

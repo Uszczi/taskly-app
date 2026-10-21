@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { request } from '../../../lib/http'
 import { todoFixture } from '../../../test/todoFixture'
+import { todoStatsFixture } from '../../../test/todoStatsFixture'
 import { todosApi } from './todos'
 
 vi.mock('../../../lib/http', () => ({ request: vi.fn() }))
@@ -11,6 +12,21 @@ it('passes the abort signal when fetching tasks', async () => {
   vi.mocked(request).mockResolvedValue([todoFixture])
   await expect(todosApi.list(signal)).resolves.toEqual([todoFixture])
   expect(request).toHaveBeenCalledWith('/todos', { signal })
+})
+
+it('fetches the stats with the abort signal', async () => {
+  const signal = new AbortController().signal
+  vi.mocked(request).mockResolvedValue(todoStatsFixture)
+  await expect(todosApi.stats(signal)).resolves.toEqual(todoStatsFixture)
+  expect(request).toHaveBeenCalledWith('/todos/stats', { signal })
+})
+
+it('clears completed tasks with a DELETE and returns the count', async () => {
+  vi.mocked(request).mockResolvedValue({ deleted: 2 })
+  await expect(todosApi.clearCompleted()).resolves.toEqual({ deleted: 2 })
+  expect(request).toHaveBeenCalledWith('/todos/completed', {
+    method: 'DELETE',
+  })
 })
 
 it('sends only writable task fields on creation', async () => {
