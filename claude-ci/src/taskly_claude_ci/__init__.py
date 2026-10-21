@@ -1,7 +1,7 @@
 """CLI for the deterministic steps around Claude Code in pr-test-claude.yml.
 
-Independent of the PydanticAI agent: it shares only the data in agent-shared/
-(skills, instructions, report schema, skip rules), never code.
+The agent's data (skills, instructions, report schema, skip rules) is in
+agent-shared/; this package is code only.
 
 - `prompt`: plan.json, and prompt.md (instructions plus the task) when there is
   something to test;

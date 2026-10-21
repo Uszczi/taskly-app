@@ -1,7 +1,6 @@
 """Which changed source files need tests, and the task Claude gets for them.
 
-Reads the shared skip rules from agent-shared/skip-rules.json; the code is this
-package's own, independent of the PydanticAI agent.
+Reads the skip rules from agent-shared/skip-rules.json.
 """
 
 import json

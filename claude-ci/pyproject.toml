@@ -3,7 +3,7 @@ name = "taskly-claude-ci"
 version = "0.1.0"
 description = "Deterministic CI steps around Claude Code: task, verification and PR comment"
 requires-python = ">=3.12"
-dependencies = []  # standard library only; independent of test-agent
+dependencies = []  # standard library only
 
 [project.scripts]
 taskly-claude-ci = "taskly_claude_ci:main"

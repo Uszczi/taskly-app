@@ -1,10 +1,9 @@
-# Alternative to pr-test-agent.yml, for comparison: Claude Code
-# (anthropics/claude-code-action) writes the tests instead of the PydanticAI agent.
+# Writes and runs unit tests for the code a pull request changes, with Claude Code
+# (anthropics/claude-code-action) as the engine.
 #
-# Independent of test-agent/: the steps around Claude are claude-ci/
-# (taskly-claude-ci, standard library only). The two engines share data only,
-# in agent-shared/: the skills, the instructions, the report schema, the skip
-# rules and the coverage script. Claude Code's own guards replace the agent's tools:
+# The deterministic steps around Claude are claude-ci/ (taskly-claude-ci,
+# standard library only); the agent's data (skills, instructions, report schema,
+# skip rules, coverage script) is in agent-shared/. Claude Code's guards:
 # - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
 #   anything but .env/.git, edit test files only, run only the test commands;
 # - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
@@ -12,10 +11,9 @@
 # installed before Claude, outside the checkout and not editable: the copy that
 # verifies Claude's work is one Claude could not change.
 #
-# Runs only for PRs from claude/* branches; pr-test-agent.yml takes pydantic/*,
-# so each PR gets one engine. To compare them, open the same change from both
-# prefixes. If both ever run on one branch, the first to finish commits its tests
-# and the other sees the branch moved and only reports (see "Commit generated tests").
+# Two jobs, so model-written code never runs next to a write token: generate has
+# the model API key but only read access; publish has write access but runs no
+# code from the PR. Runs only for PRs from claude/* branches of this repo.
 name: PR test agent (Claude Code)
 
 on:
@@ -178,8 +176,8 @@ jobs:
           echo "::error::Claude Code test run: $STATUS"
           exit 1
 
-  # Same checks as pr-test-agent.yml's publish job; only the artifact, the
-  # success condition and the comment marker differ.
+  # Writes to the repo but runs nothing from the PR: checks the patch, commits it
+  # when every test passed, and posts or updates one comment on the PR.
   publish:
     needs: generate
     if: always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled'

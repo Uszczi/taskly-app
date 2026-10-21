@@ -60,5 +60,5 @@ Write a few precise *behavioral* tests rather than many shallow ones:
 
 Every file in the plan has exactly one `add`/`update`/`skip` decision in the
 report, every behavior in scope has a test that fails without it, and every
-test file you wrote ends either *green* in `run_tests` or reported as a
-production bug.
+test file you wrote ends either *green* (see each area's skill for how to run
+it) or reported as a production bug.
