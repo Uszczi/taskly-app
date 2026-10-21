@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": { "type": "string" },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "action": { "enum": ["add", "update", "skip"] },
+          "reason": { "type": "string" }
+        },
+        "required": ["path", "action", "reason"]
+      }
+    },
+    "skills_used": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["summary", "decisions", "skills_used"]
+}

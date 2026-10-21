@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Skill",
+      "Edit(backend/tests/**/*.py)",
+      "Edit(frontend/src/**/*.test.ts)",
+      "Edit(frontend/src/**/*.test.tsx)",
+      "Bash(backend/.venv/bin/python -m pytest *)",
+      "Bash(frontend/node_modules/.bin/vitest run --root frontend *)"
+    ],
+    "deny": [
+      "Read(**/.env*)",
+      "Read(.git/**)",
+      "Edit(backend/tests/conftest.py)",
+      "Edit(backend/tests/mocks.py)",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "NotebookEdit"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "network": { "allowedDomains": [] },
+    "credentials": {
+      "envVars": [
+        { "name": "ANTHROPIC_API_KEY", "mode": "deny" },
+        { "name": "GITHUB_TOKEN", "mode": "deny" },
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "ACTIONS_RUNTIME_TOKEN", "mode": "deny" },
+        { "name": "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "mode": "deny" }
+      ]
+    }
+  }
+}

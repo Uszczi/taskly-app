@@ -1,0 +1,334 @@
+# Alternative to pr-test-agent.yml, for comparison: Claude Code
+# (anthropics/claude-code-action) writes the tests, with no Python code of ours.
+# The engine is Claude Code; this file is plain bash and jq around it.
+#
+# Shared with the PydanticAI agent: only the skills (test-agent/skills, markdown)
+# and the publish job's patch checks. Claude Code's own guards replace the
+# agent's tools:
+# - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
+#   anything but .env/.git, edit test files only, run only the two test commands;
+# - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
+# After Claude, a step with no model and no secrets checks what changed on disk
+# and reruns the tests itself; the model's report is shown, never trusted.
+#
+# Opt-in per PR: add the `claude-tests` label. It then also runs on new pushes.
+# Its comment is separate from the PydanticAI agent's, so both can be compared.
+name: PR test agent (Claude Code)
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+concurrency:
+  group: pr-test-claude-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  generate:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'claude-tests') ||
+       (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'claude-tests')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read # the action reads PR metadata
+    outputs:
+      status: ${{ steps.verify.outputs.status }}
+    steps:
+      # Outside the checkout, which is the only place Claude's sandbox can write.
+      - run: echo "OUT_DIR=$RUNNER_TEMP/out" >> "$GITHUB_ENV" && mkdir -p "$RUNNER_TEMP/out"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0 # the diff needs the merge base
+          persist-credentials: false
+
+      - name: List changed source files
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Coarse filter only; which files deserve tests is the test-scope skill's call.
+          git diff --name-only --diff-filter=AMR "$BASE_SHA...HEAD" -- backend/app frontend/src \
+            | grep -Ev '\.(test|spec|stories)\.[jt]sx?$' > "$OUT_DIR/changed.txt" || true
+          cat "$OUT_DIR/changed.txt"
+          if [ ! -s "$OUT_DIR/changed.txt" ]; then
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          delim="EOF_$(openssl rand -hex 16)"
+          {
+            echo "prompt<<$delim"
+            cat .github/claude-test-agent/prompt.md
+            echo
+            echo "Source files this pull request changes:"
+            sed 's/^/- /' "$OUT_DIR/changed.txt"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          echo "schema=$(jq -c . .github/claude-test-agent/report.schema.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install bubblewrap
+        if: steps.plan.outputs.has_targets == 'true'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap socat
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --unshare-all true
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        if: steps.plan.outputs.has_targets == 'true'
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.plan.outputs.has_targets == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.plan.outputs.has_targets == 'true'
+        run: |
+          uv venv backend/.venv --python 3.12
+          uv pip install --python backend/.venv -r backend/requirements.txt
+          npm ci --prefix frontend
+          # .claude/skills holds the developers' skills; Claude in CI gets the test agent's.
+          rm -rf .claude/skills
+          mkdir -p .claude/skills
+          cp -r test-agent/skills/. .claude/skills/
+
+      - name: Run Claude Code
+        id: claude
+        if: steps.plan.outputs.has_targets == 'true'
+        continue-on-error: true # verify reports the failure
+        uses: anthropics/claude-code-action@a5a423f75c251dcbff8a74e99f83b2cb03c72bfa # v1.0.256
+        env:
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" # no API key or tokens in commands Claude runs
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }} # read-only; the action pushes nothing
+          settings: .github/claude-test-agent/settings.json
+          prompt: ${{ steps.plan.outputs.prompt }}
+          claude_args: >-
+            --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
+            --max-turns 60
+            --json-schema '${{ steps.plan.outputs.schema }}'
+
+      - name: Verify (no model, no secrets)
+        id: verify
+        if: steps.plan.outputs.has_targets == 'true'
+        env:
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+          REPORT: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          rm -rf .claude/skills && git checkout -q -- .claude
+
+          # What Claude changed, from git rather than from its report. Fail closed:
+          # deletes, renames, symlinks and quoted (unusual) paths are violations.
+          written=() violations=()
+          while IFS= read -r line; do
+            st=${line:0:2} path=${line:3}
+            case "$st" in *D* | *R* | *C*) violations+=("$path"); continue ;; esac
+            [ -L "$path" ] && { violations+=("$path"); continue; }
+            case "$path" in
+              backend/tests/conftest.py | backend/tests/mocks.py) violations+=("$path") ;;
+              backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) written+=("$path") ;;
+              *) violations+=("$path") ;;
+            esac
+          done < <(git status --porcelain=v1 --untracked-files=all)
+
+          # Model-written code: rerun it with an empty environment, no network and
+          # a read-only filesystem except the checkout.
+          sandboxed() {
+            local dir=$1; shift
+            env -i PATH="$PATH" HOME="$HOME" NO_COLOR=1 CI=1 PYTHONDONTWRITEBYTECODE=1 \
+              bwrap --ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --bind "$PWD" "$PWD" \
+                --unshare-all --die-with-parent --chdir "$dir" -- "$@"
+          }
+          be=() fe=()
+          for p in "${written[@]}"; do
+            case "$p" in
+              */__init__.py) ;;
+              backend/*) be+=("$p") ;;
+              frontend/*) fe+=("${p#frontend/}") ;;
+            esac
+          done
+          runs='[]'
+          if [ ${#be[@]} -gt 0 ]; then
+            sandboxed "$PWD" backend/.venv/bin/python -m pytest -q -p no:cacheprovider "${be[@]}" \
+              > "$OUT_DIR/backend.log" 2>&1 && code=0 || code=$?
+            runs=$(jq -c --arg c "$code" '. + [{target: "backend", exit_code: ($c|tonumber)}]' <<< "$runs")
+          fi
+          if [ ${#fe[@]} -gt 0 ]; then
+            sandboxed "$PWD/frontend" node_modules/.bin/vitest run "${fe[@]}" \
+              > "$OUT_DIR/frontend.log" 2>&1 && code=0 || code=$?
+            runs=$(jq -c --arg c "$code" '. + [{target: "frontend", exit_code: ($c|tonumber)}]' <<< "$runs")
+          fi
+          tail -n 30 "$OUT_DIR"/*.log 2>/dev/null || true
+
+          if [ ${#violations[@]} -gt 0 ]; then status=violation
+          elif [ "$CONCLUSION" != success ] || ! jq -e . > /dev/null 2>&1 <<< "${REPORT:-x}"; then status=agent_failed
+          elif jq -e 'any(.exit_code != 0)' > /dev/null <<< "$runs"; then status=tests_failed
+          else status=ok; fi
+
+          jq -n --arg status "$status" --argjson runs "$runs" \
+            --args '{status: $status, runs: $runs,
+              written: ($ARGS.positional | map(select(startswith("w:")) | .[2:])),
+              violations: ($ARGS.positional | map(select(startswith("v:")) | .[2:]))}' \
+            "${written[@]/#/w:}" "${violations[@]/#/v:}" > "$OUT_DIR/verify.json"
+          cat "$OUT_DIR/verify.json"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+          if [ ${#written[@]} -gt 0 ]; then
+            git add -- "${written[@]}"
+            git diff --cached --binary > "$OUT_DIR/tests.patch"
+          fi
+
+      - name: Build PR comment
+        if: always() && steps.plan.outcome == 'success'
+        env:
+          REPORT: ${{ steps.claude.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -f "$OUT_DIR/verify.json" ] || echo '{"status": "nothing_to_test", "runs": [], "written": [], "violations": []}' > "$OUT_DIR/verify.json"
+          usage='null'
+          if [ -f "${EXECUTION_FILE:-}" ]; then
+            usage=$(jq -c '[.[] | select(.type == "result")] | last // null' "$EXECUTION_FILE")
+          fi
+          # The report comes from a model that read the PR's code: no HTML, no mentions, no table breaks.
+          jq -rn --slurpfile v "$OUT_DIR/verify.json" --argjson usage "$usage" \
+            --arg model "$MODEL" --arg run_url "$RUN_URL" '
+            def safe: gsub("[<>]"; "") | gsub("@"; "@​") | gsub("\\|"; "\\|") | gsub("\n"; " ");
+            $v[0] as $v
+            | (env.REPORT | try fromjson catch null) as $r
+            | {ok: "✅ Tests written and passing",
+               tests_failed: "❌ Generated tests fail; not committed",
+               violation: "❌ Claude changed files that are not tests; not committed",
+               agent_failed: "❌ Claude Code failed or gave no report",
+               nothing_to_test: "✅ No changed source files; Claude was not called"}[$v.status] as $status
+            | ["<!-- taskly-test-agent:claude -->", "## 🧪 Test agent (Claude Code)", "",
+               "**\($status)** · [run log](\($run_url))", ""]
+            + (if $r then ["> \($r.summary | safe)", ""]
+                 + (if ($r.decisions | length) > 0 then
+                      ["| Source | Action | Reason |", "|---|---|---|"]
+                      + [$r.decisions[] | "| `\(.path | safe)` | \(.action) | \(.reason | safe) |"] + [""]
+                    else [] end)
+                 + (if ($r.skills_used | length) > 0 then
+                      ["Skills used: " + ([$r.skills_used[] | "`\(safe)`"] | join(", ")), ""]
+                    else [] end)
+               else [] end)
+            + (if ($v.runs | length) > 0 then
+                 ["| Rerun without the model | Result |", "|---|---|"]
+                 + [$v.runs[] | "| \(.target) | \(if .exit_code == 0 then "✅ passed" else "❌ exit \(.exit_code)" end) |"] + [""]
+               else [] end)
+            + (if ($v.violations | length) > 0 then ["Not allowed:"] + [$v.violations[] | "- `\(.)`"] + [""] else [] end)
+            + (if ($v.written | length) > 0 then
+                 ["Files written (\(if $v.status == "ok" then "committed to this branch" else "attached as a patch in the run artifacts" end)):"]
+                 + [$v.written[] | "- `\(.)`"] + [""]
+               else [] end)
+            + (if $usage then
+                 ["<details><summary>Usage</summary>", "", "```",
+                  "model: \($model)  turns: \($usage.num_turns // "?")",
+                  "input: \($usage.usage.input_tokens // 0)  cache read: \($usage.usage.cache_read_input_tokens // 0)  cache write: \($usage.usage.cache_creation_input_tokens // 0)  output: \($usage.usage.output_tokens // 0)",
+                  "cost: $\($usage.total_cost_usd // "?")", "```", "", "</details>"]
+               else [] end)
+            | join("\n")' > "$OUT_DIR/comment.md"
+          cat "$OUT_DIR/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.plan.outcome == 'success'
+        with:
+          name: test-agent-claude
+          path: ${{ runner.temp }}/out/
+          retention-days: 14
+
+      - name: Fail when Claude or its tests failed
+        if: steps.verify.outputs.status != '' && steps.verify.outputs.status != 'ok'
+        env:
+          STATUS: ${{ steps.verify.outputs.status }}
+        run: |
+          echo "::error::Claude Code test run: $STATUS"
+          exit 1
+
+  # Same checks as pr-test-agent.yml's publish job; only the artifact, the
+  # success condition and the comment marker differ.
+  publish:
+    needs: generate
+    if: always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the generated tests
+      pull-requests: write # comment on the PR
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true # missing when generate failed early
+        with:
+          name: test-agent-claude
+          path: out
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: repo
+          persist-credentials: false # the token is passed to `git push` only
+
+      - name: Commit generated tests
+        if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
+        working-directory: repo
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "> Not committed: the branch got new commits during the run; the next run covers them." >> ../out/comment.md
+            exit 0
+          fi
+          # The patch comes from a job that ran model-written code: accept test files only.
+          git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
+            case "$path" in
+              backend/tests/conftest.py | backend/tests/mocks.py) ;;
+              backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) continue ;;
+            esac
+            echo "::error::patch touches a file that is not a test: $path"
+            exit 1
+          done
+          # Only new regular files or edits: no deletes, renames, symlinks or executables.
+          if git apply --summary ../out/tests.patch | grep -v '^ create mode 100644 '; then
+            echo "::error::patch contains a delete, rename or mode change"
+            exit 1
+          fi
+          git apply --index ../out/tests.patch
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -q -m "test: add unit tests for changed code" -m "Generated by Claude Code (PR test agent alternative)."
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$HEAD_REF"
+
+      - name: Post or update the PR comment
+        if: hashFiles('out/comment.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
+            '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- taskly-test-agent:claude -->"))) | .id' \
+            | head -n1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@out/comment.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@out/comment.md > /dev/null
+          fi
