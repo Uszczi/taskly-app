@@ -1,0 +1,38 @@
+# The test agent's own unit tests (no model, no network).
+# bubblewrap is installed so the sandbox tests run instead of being skipped.
+name: Test autotest agent
+
+on:
+  push:
+    branches: [main]
+    paths: [test-agent/**, .github/workflows/test-autotest-agent.yml]
+  pull_request:
+    paths: [test-agent/**, .github/workflows/test-autotest-agent.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --unshare-all true
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        working-directory: test-agent
+        run: uv run --frozen pytest
