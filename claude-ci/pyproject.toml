@@ -1,0 +1,20 @@
+[project]
+name = "taskly-claude-ci"
+version = "0.1.0"
+description = "Deterministic CI steps around Claude Code: task, verification and PR comment"
+requires-python = ">=3.12"
+dependencies = []  # standard library only
+
+[project.scripts]
+taskly-claude-ci = "taskly_claude_ci:main"
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

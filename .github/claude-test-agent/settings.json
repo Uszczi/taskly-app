@@ -16,8 +16,6 @@
     "deny": [
       "Read(**/.env*)",
       "Read(.git/**)",
-      "Edit(backend/tests/conftest.py)",
-      "Edit(backend/tests/mocks.py)",
       "WebFetch",
       "WebSearch",
       "Agent",

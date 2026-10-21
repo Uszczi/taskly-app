@@ -1,0 +1,30 @@
+{
+  "$comment": "Source files that need no unit tests. Mirrors `omit` in backend/pyproject.toml and `coverage.exclude` in frontend/vite.config.ts; change all three together.",
+  "backend": {
+    "root": "backend/app/",
+    "suffixes": [".py"],
+    "skip_names": ["__init__.py", "schemas.py", "models.py", "types.py", "constants.py"],
+    "$comment_skip_paths": "Only the entrypoint (`app = create_app()`); a main.py deeper in app/ may hold real logic.",
+    "skip_paths": ["backend/app/main.py"]
+  },
+  "frontend": {
+    "root": "frontend/src/",
+    "suffixes": [".ts", ".tsx"],
+    "$comment_skip_globs": "fnmatch globs: `*` also matches `/`.",
+    "skip_globs": [
+      "frontend/src/main.tsx",
+      "frontend/src/test/*",
+      "frontend/src/design-system/*",
+      "*/types.ts",
+      "*.types.ts",
+      "*/index.ts",
+      "*/constants.ts",
+      "*/constants.tsx",
+      "*.constants.ts",
+      "*.d.ts",
+      "*.stories.tsx",
+      "frontend/src/features/todos/api/queryKeys.ts",
+      "frontend/src/lib/queryClient.ts"
+    ]
+  }
+}
