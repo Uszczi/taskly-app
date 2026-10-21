@@ -103,7 +103,7 @@ def render(
             lines += [f"  - {_safe(name)}" for name in names]
         lines.append("")
 
-    # Written by .github/scripts/coverage.sh from the coverage reports; no model text.
+    # Written by agent-shared/coverage.sh from the coverage reports; no model text.
     if coverage.strip():
         lines += [coverage.strip(), ""]
 
@@ -145,7 +145,7 @@ def main() -> None:
     parser.add_argument("--result", type=Path, required=True, help="agent stdout (JSON)")
     parser.add_argument("--stderr", type=Path, required=True, help="agent stderr")
     parser.add_argument("--patch", type=Path, help="the test patch the run produced")
-    parser.add_argument("--coverage", type=Path, help="coverage section from .github/scripts/coverage.sh")
+    parser.add_argument("--coverage", type=Path, help="coverage section from agent-shared/coverage.sh")
     parser.add_argument("--exit-code", type=int, required=True)
     parser.add_argument("--run-url", required=True)
     args = parser.parse_args()

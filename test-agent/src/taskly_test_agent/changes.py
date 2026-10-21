@@ -2,8 +2,9 @@
 
 The model gets this plan as facts instead of exploring the repository itself:
 cheaper, reproducible, and when nothing is testable the agent is not run at all.
-The skip rules mirror the coverage exclusions in backend/pyproject.toml and
-frontend/vite.config.ts; keep the three in sync.
+The skip rules come from agent-shared/skip-rules.json, shared with the Claude
+Code alternative; they mirror the coverage exclusions in backend/pyproject.toml
+and frontend/vite.config.ts, so keep the three in sync.
 """
 
 import re
@@ -13,26 +14,12 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Literal
 
+from .shared import SKIP_RULES
+
 Area = Literal["backend", "frontend"]
 
-_BACKEND_SKIP = ("__init__.py", "schemas.py", "models.py", "types.py", "constants.py")
-# Only the entrypoint (`app = create_app()`); a main.py deeper in app/ may hold real logic.
-_BACKEND_SKIP_PATHS = ("backend/app/main.py",)
-_FRONTEND_SKIP_GLOBS = (
-    "frontend/src/main.tsx",
-    "frontend/src/test/*",
-    "frontend/src/design-system/*",
-    "*/types.ts",
-    "*.types.ts",
-    "*/index.ts",
-    "*/constants.ts",
-    "*/constants.tsx",
-    "*.constants.ts",
-    "*.d.ts",
-    "*.stories.tsx",
-    "frontend/src/features/todos/api/queryKeys.ts",
-    "frontend/src/lib/queryClient.ts",
-)
+_BACKEND = SKIP_RULES["backend"]
+_FRONTEND = SKIP_RULES["frontend"]
 # A git ref or SHA from the CI event; never something that git could read as an option.
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/~^-]*$")
 # Per-file diff shown to the model; past this the model reads the file itself.
@@ -78,13 +65,13 @@ def is_test_file(path: str) -> bool:
 
 def classify(path: str) -> tuple[Area, str] | Skipped:
     """(area, conventional test path) for testable sources, else Skipped with a reason."""
-    if path.startswith("backend/app/") and path.endswith(".py"):
-        if Path(path).name in _BACKEND_SKIP or path in _BACKEND_SKIP_PATHS:
+    if path.startswith(_BACKEND["root"]) and path.endswith(tuple(_BACKEND["suffixes"])):
+        if Path(path).name in _BACKEND["skip_names"] or path in _BACKEND["skip_paths"]:
             return Skipped(path, "excluded from backend coverage", excluded=True)
         rel = Path(path).relative_to("backend/app")
         return "backend", f"backend/tests/{rel.parent / f'test_{rel.name}'}"
-    if path.startswith("frontend/src/") and path.endswith((".ts", ".tsx")):
-        if any(fnmatch(path, glob) for glob in _FRONTEND_SKIP_GLOBS):
+    if path.startswith(_FRONTEND["root"]) and path.endswith(tuple(_FRONTEND["suffixes"])):
+        if any(fnmatch(path, glob) for glob in _FRONTEND["skip_globs"]):
             return Skipped(path, "excluded from frontend coverage", excluded=True)
         stem, ext = path.rsplit(".", 1)
         return "frontend", f"{stem}.test.{ext}"

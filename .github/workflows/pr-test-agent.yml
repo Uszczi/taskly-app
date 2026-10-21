@@ -74,7 +74,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           mkdir -p out
-          .github/scripts/coverage.sh measure "$BASE_SHA" out/coverage-before.json
+          agent-shared/coverage.sh measure "$BASE_SHA" out/coverage-before.json
 
       - name: Run test agent
         id: agent
@@ -107,8 +107,8 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          .github/scripts/coverage.sh measure "$BASE_SHA" out/coverage-after.json
-          .github/scripts/coverage.sh render "$BASE_SHA" out/coverage-before.json out/coverage-after.json \
+          agent-shared/coverage.sh measure "$BASE_SHA" out/coverage-after.json
+          agent-shared/coverage.sh render "$BASE_SHA" out/coverage-before.json out/coverage-after.json \
             > out/coverage.md
           cat out/coverage.md
 

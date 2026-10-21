@@ -5,9 +5,9 @@ name: Test autotest agent
 on:
   push:
     branches: [main]
-    paths: [test-agent/**, .github/workflows/test-autotest-agent.yml]
+    paths: [test-agent/**, claude-ci/**, agent-shared/**, .github/workflows/test-autotest-agent.yml]
   pull_request:
-    paths: [test-agent/**, .github/workflows/test-autotest-agent.yml]
+    paths: [test-agent/**, claude-ci/**, agent-shared/**, .github/workflows/test-autotest-agent.yml]
 
 permissions:
   contents: read
@@ -35,4 +35,8 @@ jobs:
 
       - name: Run tests
         working-directory: test-agent
+        run: uv run --frozen pytest
+
+      - name: Run claude-ci tests
+        working-directory: claude-ci
         run: uv run --frozen pytest

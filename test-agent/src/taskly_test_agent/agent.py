@@ -7,6 +7,7 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 
 from .paths import PathNotAllowed, is_secret, is_test_path, resolve_in_repo
 from .runner import Target, TestRun, run_tests as run_test_suite
+from .shared import INSTRUCTIONS, REPORT_SCHEMA
 from .skills import load_skills
 
 MAX_FILE_CHARS = 40_000
@@ -22,38 +23,30 @@ class Deps:
     test_runs: list[TestRun] = field(default_factory=list)
 
 
+# Descriptions come from the shared report schema, which Claude Code gets as its
+# --json-schema; test_report_matches_the_shared_schema keeps the structure in step.
+_FIELDS = REPORT_SCHEMA["properties"]
+_DECISION_FIELDS = _FIELDS["decisions"]["items"]["properties"]
+
+
 class FileDecision(BaseModel):
-    path: str = Field(description="Source file the decision is about, relative to the repo root.")
+    path: str = Field(description=_DECISION_FIELDS["path"]["description"])
     action: Literal["add", "update", "skip"]
     reason: str
 
 
 class Report(BaseModel):
-    summary: str = Field(description="One or two sentences on what was done.")
-    decisions: list[FileDecision] = Field(default_factory=list)
-    attention: list[str] = Field(
-        default_factory=list,
-        description=(
-            "What the PR reviewer must act on, one short sentence each: production bugs "
-            "the tests exposed, behavior in scope left untested and why. Empty when the "
-            "tests cover the change; this is the only report text shown on the PR."
-        ),
-    )
-    skills_used: list[str] = Field(
-        default_factory=list, description="Ids of the skills you loaded with load_capability."
-    )
+    summary: str = Field(description=_FIELDS["summary"]["description"])
+    decisions: list[FileDecision] = Field(default_factory=list, description=_FIELDS["decisions"]["description"])
+    attention: list[str] = Field(default_factory=list, description=_FIELDS["attention"]["description"])
+    skills_used: list[str] = Field(default_factory=list, description=_FIELDS["skills_used"]["description"])
 
 
 agent = Agent(
     name="taskly_test_agent",
     deps_type=Deps,
     output_type=Report,
-    instructions=(
-        "You are a test engineer for the Taskly repository "
-        "(React + TypeScript frontend, FastAPI backend). "
-        "Use the tools to inspect files before drawing conclusions. "
-        "Skills hold the repository's testing rules; each skill's description says when to load it."
-    ),
+    instructions=INSTRUCTIONS,  # shared with Claude Code; this engine's specifics are in the tools
     capabilities=[skill.to_capability() for skill in load_skills()],
 )
 

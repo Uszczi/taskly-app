@@ -13,7 +13,9 @@ from pathlib import Path
 import yaml
 from pydantic_ai.capabilities import Capability
 
-SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
+from .shared import SHARED_DIR
+
+SKILLS_DIR = SHARED_DIR / "skills"
 
 _NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n(.*)\Z", re.DOTALL)
