@@ -1,8 +1,9 @@
 # Taskly
 
 Sample app (`frontend/`: React + TS, `backend/`: FastAPI) plus `test-agent/`, a
-Pydantic AI agent that writes unit tests for it. `justfile` is the entry point
-for running the agent; `just agent-test` runs its own tests with no model or network.
+Pydantic AI agent that writes unit tests for it. Run the agent with
+`uv run taskly-test-agent --repo .. --help` from `test-agent/`; `uv run pytest`
+there runs its own tests with no model or network.
 
 ## Two kinds of skills
 

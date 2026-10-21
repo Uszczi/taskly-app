@@ -23,7 +23,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="taskly-test-agent")
     task = parser.add_mutually_exclusive_group(required=True)
     task.add_argument("prompt", nargs="?", help="free-form task for the agent")
-    task.add_argument("--diff", metavar="BASE", help="PR mode: test files changed since BASE")
+    task.add_argument("--diff", metavar="BASE", help="PR mode: write tests for source files changed since BASE (merge base)")
     task.add_argument(
         "--untested", action="store_true", help="backfill mode: test every source file without tests"
     )

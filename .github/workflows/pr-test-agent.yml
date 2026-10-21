@@ -1,0 +1,195 @@
+# Writes and runs unit tests for the code a pull request changes.
+#
+# Two jobs, so model-written code never runs next to a write token:
+# - generate: has the model API key but only read access. Runs the agent on
+#   the PR diff; the tests it writes run inside a bubblewrap sandbox. Uploads
+#   the test patch and the PR comment as an artifact.
+# - publish: has write access but runs no code from the PR. Checks that the
+#   patch only touches test files, commits it when every test passed, and
+#   posts or updates one comment on the PR.
+#
+# Fork PRs get no secrets, so the agent runs only for branches of this repo.
+# Commits pushed with GITHUB_TOKEN do not trigger workflows, so the agent's
+# own commit does not start another run.
+name: PR test agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-test-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  generate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      exit_code: ${{ steps.agent.outputs.exit_code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0 # --diff needs the merge base
+          persist-credentials: false
+
+      - name: Install bubblewrap
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --ro-bind / / --unshare-all true
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          # The agent's test runner uses backend/.venv and frontend/node_modules.
+          uv venv backend/.venv --python 3.12
+          uv pip install --python backend/.venv -r backend/requirements.txt
+          npm ci --prefix frontend
+          uv sync --project test-agent --frozen --no-dev
+
+      - name: Run test agent
+        id: agent
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          AGENT_MODEL: ${{ vars.AGENT_MODEL || 'anthropic:claude-haiku-5-5' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PYDANTIC_AI_NO_BANNER: "1"
+        run: |
+          mkdir -p out
+          for attempt in 1 2 3; do
+            set +e
+            uv run --project test-agent --frozen --no-dev taskly-test-agent \
+              --repo . --diff "$BASE_SHA" --verbose > out/result.json 2> out/stderr.log
+            code=$?
+            set -e
+            cat out/stderr.log
+            # Exit code 4: rate limit, overload or network error, worth retrying.
+            if [ "$code" -ne 4 ] || [ "$attempt" -eq 3 ]; then break; fi
+            git checkout -q -- backend/tests frontend/src
+            git clean -fdq -- backend/tests frontend/src
+            sleep $((attempt * 30))
+          done
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Build test patch and PR comment
+        if: always() && steps.agent.outcome != 'skipped'
+        env:
+          EXIT_CODE: ${{ steps.agent.outputs.exit_code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Only the files the agent's tools recorded, not whatever else changed on disk.
+          jq -r '.files_written[]?' out/result.json > out/files.txt 2>/dev/null || : > out/files.txt
+          if [ -s out/files.txt ]; then
+            xargs -a out/files.txt -d '\n' git add --
+            git diff --cached --binary > out/tests.patch
+          fi
+          uv run --project test-agent --frozen --no-dev taskly-pr-comment \
+            --result out/result.json --stderr out/stderr.log \
+            --exit-code "${EXIT_CODE:-1}" --run-url "$RUN_URL" > out/comment.md
+          cat out/comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.agent.outcome != 'skipped'
+        with:
+          name: test-agent
+          path: out/
+          retention-days: 14
+
+      - name: Fail when the agent or its tests failed
+        if: steps.agent.outputs.exit_code != '0'
+        env:
+          EXIT_CODE: ${{ steps.agent.outputs.exit_code }}
+        run: |
+          echo "::error::test agent exited with code $EXIT_CODE (7: generated tests fail or were not run)"
+          exit 1
+
+  publish:
+    needs: generate
+    if: always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the generated tests
+      pull-requests: write # comment on the PR
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true # missing when generate failed before the agent ran
+        with:
+          name: test-agent
+          path: out
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.generate.outputs.exit_code == '0' && hashFiles('out/tests.patch') != ''
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: repo
+          persist-credentials: false # the token is passed to `git push` only
+
+      - name: Commit generated tests
+        if: needs.generate.outputs.exit_code == '0' && hashFiles('out/tests.patch') != ''
+        working-directory: repo
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "> Not committed: the branch got new commits during the run; the next run covers them." >> ../out/comment.md
+            exit 0
+          fi
+          # The patch comes from a job that ran model-written code: accept test files only.
+          git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
+            case "$path" in
+              backend/tests/conftest.py | backend/tests/mocks.py) ;;
+              backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) continue ;;
+            esac
+            echo "::error::patch touches a file that is not a test: $path"
+            exit 1
+          done
+          # Only new regular files or edits: no deletes, renames, symlinks or executables.
+          if git apply --summary ../out/tests.patch | grep -v '^ create mode 100644 '; then
+            echo "::error::patch contains a delete, rename or mode change"
+            exit 1
+          fi
+          git apply --index ../out/tests.patch
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -q -m "test: add unit tests for changed code" -m "Generated by the PR test agent."
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$HEAD_REF"
+
+      - name: Post or update the PR comment
+        if: hashFiles('out/comment.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
+            '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- taskly-test-agent -->"))) | .id' \
+            | head -n1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@out/comment.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@out/comment.md > /dev/null
+          fi
