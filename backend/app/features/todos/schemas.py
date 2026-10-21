@@ -40,3 +40,17 @@ class Todo(TodoCreate):
     id: int
     created_at: datetime
     updated_at: datetime
+
+
+class TodoStats(BaseModel):
+    total: int
+    completed: int
+    active: int
+    overdue: int
+    due_today: int
+    active_by_priority: dict[Priority, int]
+    completion_rate: float = Field(ge=0, le=1)
+
+
+class ClearCompletedResult(BaseModel):
+    deleted: int

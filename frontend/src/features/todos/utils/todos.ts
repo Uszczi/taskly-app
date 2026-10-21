@@ -1,4 +1,4 @@
-import type { Filter, Sort, Todo, TodoInput } from '../types'
+import type { Filter, Sort, Todo, TodoInput, TodoStats } from '../types'
 
 export const priorityLabels = { low: 'Low', medium: 'Medium', high: 'High' }
 const priorityOrder = { high: 0, medium: 1, low: 2 }
@@ -68,4 +68,18 @@ export function formatDate(date: string): string {
     month: 'short',
     year: 'numeric',
   }).format(new Date(`${date}T12:00:00`))
+}
+
+export function describeProgress(stats: TodoStats): string {
+  if (stats.total === 0) return 'No tasks yet'
+  if (stats.active === 0) return `All ${stats.total} tasks done`
+  return `${stats.completed} of ${stats.total} done (${Math.round(stats.completion_rate * 100)}%)`
+}
+
+export function describeDeadlines(stats: TodoStats): string | null {
+  const parts = [
+    stats.overdue > 0 && `${stats.overdue} overdue`,
+    stats.due_today > 0 && `${stats.due_today} due today`,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
 }
