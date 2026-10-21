@@ -10,8 +10,12 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Literal, cast
 
+from .models import Report, Result, Run, Status
 from .plan import git
+
+Command = tuple[Literal["backend", "frontend", "typecheck"], Path, list[str]]
 
 # Test files Claude may not change, e.g. shared fixtures every test depends on. None for now.
 PROTECTED: frozenset[str] = frozenset()
@@ -29,7 +33,8 @@ def is_writable_test(path: str) -> bool:
 def disk_changes(repo: Path) -> tuple[list[str], list[str]]:
     """(test files written, violations). Fails closed: deletes, renames and symlinks are violations."""
     entries = git(repo, "status", "--porcelain=v1", "-z", "--untracked-files=all").split("\0")
-    written, violations = [], []
+    written: list[str] = []
+    violations: list[str] = []
     i = 0
     while i < len(entries) and entries[i]:
         status, path = entries[i][:2], entries[i][3:]
@@ -53,11 +58,11 @@ def sandboxed(repo: Path, cwd: Path, argv: list[str]) -> list[str]:
             "--chdir", str(cwd), "--", *argv]
 
 
-def commands(repo: Path, written: list[str]) -> list[tuple[str, Path, list[str]]]:
+def commands(repo: Path, written: list[str]) -> list[Command]:
     """(target, cwd, argv) for each run the written files need."""
     backend = [p for p in written if p.startswith("backend/") and Path(p).name != "__init__.py"]
     frontend = [p.removeprefix("frontend/") for p in written if p.startswith("frontend/")]
-    runs = []
+    runs: list[Command] = []
     if backend:
         runs.append(("backend", repo, ["backend/.venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *backend]))
     if frontend:
@@ -82,25 +87,27 @@ def run(repo: Path, cwd: Path, argv: list[str], log: Path, sandbox: bool = True)
     return proc.returncode
 
 
-def parse_report(text: str | None) -> dict | None:
+def parse_report(text: str | None) -> Report | None:
     """Claude's structured output; the action already checked it against the shared schema."""
     try:
         report = json.loads(text or "")
     except ValueError:
         return None
-    return report if isinstance(report, dict) else None
+    # The fields are model text; the action has only checked their shape.
+    return cast(Report, report) if isinstance(report, dict) else None
 
 
-def verify(repo: Path, out: Path, report_text: str | None, conclusion: str, sandbox: bool = True) -> str:
+def verify(repo: Path, out: Path, report_text: str | None, conclusion: str, sandbox: bool = True) -> Status:
     """Write result.json (and tests.patch, run logs); return the status."""
     written, violations = disk_changes(repo)
     report = parse_report(report_text)
-    runs = []
+    runs: list[Run] = []
     # With a violation nothing is committed, so its tests are not worth running.
     if not violations:
         for target, cwd, argv in commands(repo, written):
-            runs.append({"target": target, "exit_code": run(repo, cwd, argv, out / f"{target}.log", sandbox)})
+            runs.append(Run(target=target, exit_code=run(repo, cwd, argv, out / f"{target}.log", sandbox)))
 
+    status: Status
     if violations:
         status = "violation"
     elif conclusion != "success" or report is None:
@@ -110,7 +117,7 @@ def verify(repo: Path, out: Path, report_text: str | None, conclusion: str, sand
     else:
         status = "ok"
 
-    result = {"status": status, "written": written, "violations": violations, "runs": runs, "report": report}
+    result = Result(status=status, written=written, violations=violations, runs=runs, report=report)
     (out / "result.json").write_text(json.dumps(result, indent=2))
     if written:
         git(repo, "add", "--", *written)

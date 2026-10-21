@@ -68,7 +68,8 @@ def out(tmp_path: Path) -> Path:
     ],
 )
 def test_classify_follows_the_shared_skip_rules(path: str, expected: str | None) -> None:
-    assert classify(path, RULES).get("test") == expected
+    result = classify(path, RULES)
+    assert (result[1] if isinstance(result, tuple) else None) == expected
 
 
 def test_plan_has_diffs_for_targets_and_reasons_for_skips(repo: Path) -> None:

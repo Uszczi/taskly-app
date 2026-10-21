@@ -9,19 +9,21 @@ import json
 import re
 from pathlib import Path
 
+from .models import Plan, Result, Status
+
 MARKER = "<!-- taskly-test-agent:claude -->"
 # The publish job replaces this with a link to the commit it pushed.
 COMMIT_SLOT = "<!-- commit -->"
 
-_STATUS = {
+_STATUS: dict[Status, str] = {
     "tests_failed": "❌ Generated tests fail; not committed",
     "violation": "❌ Claude changed files that are not tests; not committed",
     "agent_failed": "❌ Claude Code failed or gave no report",
     "nothing_to_test": "✅ No changed source file needs unit tests",
 }
 _FILE = re.compile(r"^diff --git a/.+ b/(.+)$")
-_JS_TEST = re.compile(r"""^([+-])\s*(?:it|test)(?:\.\w+)?\(\s*(['"`])(.+?)\2""")
-_PY_TEST = re.compile(r"^([+-])\s*(?:async\s+)?def\s+test_(\w+)\s*\(")
+_JS_TEST = re.compile(r"""^(?P<sign>[+-])\s*(?:it|test)(?:\.\w+)?\(\s*(?P<q>['"`])(?P<name>.+?)(?P=q)""")
+_PY_TEST = re.compile(r"^(?P<sign>[+-])\s*(?:async\s+)?def\s+test_(?P<name>\w+)\s*\(")
 
 
 def safe(text: str) -> str:
@@ -34,15 +36,13 @@ def added_tests(patch: str) -> dict[str, list[str]]:
     """Names of the tests a patch adds, per file. A name it also removes was moved, not added."""
     added: dict[str, list[str]] = {}
     removed: dict[str, set[str]] = {}
-    path = None
+    path: str | None = None
     for line in patch.splitlines():
-        if match := _FILE.match(line):
-            path = match.group(1)
-        elif path and (match := _JS_TEST.match(line) or _PY_TEST.match(line)):
-            sign, name = match.group(1), match.group(match.lastindex)
-            if match.re is _PY_TEST:
-                name = name.replace("_", " ")
-            if sign == "+":
+        if file := _FILE.match(line):
+            path = file.group(1)
+        elif path and (test := _JS_TEST.match(line) or _PY_TEST.match(line)):
+            name = test["name"].replace("_", " ") if test.re is _PY_TEST else test["name"]
+            if test["sign"] == "+":
                 added.setdefault(path, []).append(name)
             else:
                 removed.setdefault(path, set()).add(name)
@@ -53,8 +53,10 @@ def added_tests(patch: str) -> dict[str, list[str]]:
 def usage_footer(execution_file: Path | None, model: str) -> str:
     """Model, cost and turns from claude-code-action's execution file."""
     try:
-        entries = json.loads(execution_file.read_text()) if execution_file else []
+        entries: object = json.loads(execution_file.read_text()) if execution_file else []
     except (OSError, ValueError):
+        entries = []
+    if not isinstance(entries, list):
         entries = []
     results = [e for e in entries if isinstance(e, dict) and e.get("type") == "result"]
     if not results:
@@ -69,11 +71,12 @@ def render(out: Path, run_url: str, footer: str) -> str:
         path = out / name
         return path.read_text() if path.exists() else ""
 
+    result: Result | None
     try:
         result = json.loads(read("result.json"))
     except ValueError:
         result = None
-    plan = json.loads(read("plan.json") or "{}")
+    plan: Plan = json.loads(read("plan.json") or '{"targets": [], "skipped": [], "changed_tests": []}')
     tests = added_tests(read("tests.patch"))
     count = sum(len(names) for names in tests.values())
 
@@ -95,8 +98,8 @@ def render(out: Path, run_url: str, footer: str) -> str:
     if coverage := read("coverage.md").strip():
         lines += [coverage, ""]
 
-    report = (result or {}).get("report") or {}
-    untested = {s["path"]: s["reason"] for s in plan.get("skipped", []) if s.get("excluded")}
+    report = (result.get("report") if result else None) or {}
+    untested = {s["path"]: s["reason"] for s in plan["skipped"] if s["excluded"]}
     for decision in report.get("decisions", []):
         if decision.get("action") == "skip":
             untested.setdefault(safe(str(decision.get("path"))), safe(str(decision.get("reason"))))
@@ -104,7 +107,7 @@ def render(out: Path, run_url: str, footer: str) -> str:
         lines += ["**Changed files without tests**", "", "| File | Why |", "|---|---|"]
         lines += [f"| `{path}` | {reason} |" for path, reason in untested.items()] + [""]
 
-    attention = []
+    attention: list[str] = []
     if result is None:
         attention.append("No verification result; see the run log.")
     else:
