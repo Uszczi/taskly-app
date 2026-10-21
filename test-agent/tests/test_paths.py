@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from taskly_test_agent import paths
 from taskly_test_agent.paths import PathNotAllowed, is_test_path, resolve_in_repo
 
 
@@ -33,11 +34,18 @@ def test_rejects_symlink_pointing_outside(tmp_path: Path) -> None:
         ("frontend/src/App.tsx", False),
         ("frontend/vite.config.ts", False),
         (".github/workflows/ci.yml", False),
-        ("backend/tests/conftest.py", False),
-        ("backend/tests/mocks.py", False),
+        ("backend/tests/conftest.py", True),
+        ("backend/tests/mocks.py", True),
         ("backend/tests/features/todos/conftest.py", True),
         ("frontend/src/test/setup.ts", False),
     ],
 )
 def test_is_test_path(tmp_path: Path, rel: str, expected: bool) -> None:
     assert is_test_path(tmp_path, tmp_path / rel) is expected
+
+
+def test_protected_test_files_cannot_be_written(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(paths, "PROTECTED_TEST_FILES", frozenset({"backend/tests/conftest.py"}))
+
+    assert not is_test_path(tmp_path, tmp_path / "backend/tests/conftest.py")
+    assert is_test_path(tmp_path, tmp_path / "backend/tests/test_x.py")

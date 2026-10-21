@@ -27,11 +27,11 @@ Reuse these instead of redefining them:
   those, build the app with `app.factory` in the test itself.
 - `todo_values`, `todo` (a validated `Todo`), `model_factory` (builds `TodoRecord`).
 
-`backend/tests/conftest.py` and `backend/tests/mocks.py` are read-only for you.
-A fixture they lack goes in the test file, or in a `conftest.py` next to it
-(e.g. `backend/tests/core/conftest.py`) when several files in that directory
-share it. When the shared files themselves need a change, describe it in the
-decision's reason for a maintainer to make.
+A fixture only one test file needs goes in that file; one several files in a
+directory share goes in a `conftest.py` next to them (e.g.
+`backend/tests/core/conftest.py`). Change `backend/tests/conftest.py` or
+`backend/tests/mocks.py` only when every test would benefit, and keep the
+existing fixtures working: every backend test depends on them.
 
 ## Style
 

@@ -97,8 +97,8 @@ def list_dir(ctx: RunContext[Deps], path: str = ".") -> list[str]:
 def write_test_file(ctx: RunContext[Deps], path: str, content: str) -> str:
     """Create or overwrite a unit test file. Only test files may be written.
 
-    Allowed: `backend/tests/**/*.py` (except conftest.py and mocks.py at the
-    tests root) and `frontend/src/**/*.test.ts(x)`. Always send the full file.
+    Allowed: `backend/tests/**/*.py` and `frontend/src/**/*.test.ts(x)`.
+    Always send the full file.
 
     Args:
         path: Test file path relative to the repository root.

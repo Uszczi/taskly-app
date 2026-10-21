@@ -13,7 +13,8 @@ from pathlib import Path
 
 from .plan import git
 
-PROTECTED = frozenset({"backend/tests/conftest.py", "backend/tests/mocks.py"})
+# Test files Claude may not change, e.g. shared fixtures every test depends on. None for now.
+PROTECTED: frozenset[str] = frozenset()
 TIMEOUT_SECONDS = 600
 
 

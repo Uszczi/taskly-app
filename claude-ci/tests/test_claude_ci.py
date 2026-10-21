@@ -125,15 +125,22 @@ def test_nothing_to_test_writes_a_result_instead_of_a_prompt(repo: Path, out: Pa
 def test_test_files_are_written_and_everything_else_is_a_violation(repo: Path) -> None:
     (repo / "backend/tests/test_new.py").write_text("def test_x(): pass\n")
     (repo / "backend/tests/test_old.py").write_text("x = 2\n")
-    (repo / "backend/tests/conftest.py").write_text("x = 2\n")  # protected
+    (repo / "backend/tests/conftest.py").write_text("x = 2\n")  # shared fixtures are tests too
     (repo / "backend/app/x.py").write_text("x = 2\n")  # production code
     (repo / "README.md").unlink()
     (repo / "backend/tests/test_link.py").symlink_to(repo / "backend/app/x.py")
 
     written, violations = disk_changes(repo)
 
-    assert sorted(written) == ["backend/tests/test_new.py", "backend/tests/test_old.py"]
-    assert sorted(violations) == ["README.md", "backend/app/x.py", "backend/tests/conftest.py", "backend/tests/test_link.py"]
+    assert sorted(written) == ["backend/tests/conftest.py", "backend/tests/test_new.py", "backend/tests/test_old.py"]
+    assert sorted(violations) == ["README.md", "backend/app/x.py", "backend/tests/test_link.py"]
+
+
+def test_a_protected_test_file_is_a_violation(repo: Path, monkeypatch) -> None:
+    monkeypatch.setattr(verify_module, "PROTECTED", frozenset({"backend/tests/conftest.py"}))
+    (repo / "backend/tests/conftest.py").write_text("x = 2\n")
+
+    assert disk_changes(repo) == ([], ["backend/tests/conftest.py"])
 
 
 def test_a_rename_is_a_violation_and_its_source_is_not_misread(repo: Path) -> None:

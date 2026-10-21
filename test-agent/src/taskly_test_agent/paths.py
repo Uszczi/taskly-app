@@ -23,8 +23,8 @@ def resolve_in_repo(root: Path, relative: str) -> Path:
     return candidate
 
 
-# Shared test infrastructure: changing it could silently alter every other test.
-PROTECTED_TEST_FILES = frozenset({"backend/tests/conftest.py", "backend/tests/mocks.py"})
+# Test files the agent may not change, e.g. shared fixtures every test depends on. None for now.
+PROTECTED_TEST_FILES: frozenset[str] = frozenset()
 
 
 def is_test_path(root: Path, path: Path) -> bool:

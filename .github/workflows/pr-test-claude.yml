@@ -217,7 +217,6 @@ jobs:
           # The patch comes from a job that ran model-written code: accept test files only.
           git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
             case "$path" in
-              backend/tests/conftest.py | backend/tests/mocks.py) ;;
               backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) continue ;;
             esac
             echo "::error::patch touches a file that is not a test: $path"
