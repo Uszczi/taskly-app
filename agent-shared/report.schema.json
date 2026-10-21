@@ -3,7 +3,7 @@
   "properties": {
     "summary": {
       "type": "string",
-      "description": "One or two sentences on what was done."
+      "description": "One or two sentences for the PR reviewer on what the new tests cover; shown at the top of the PR comment."
     },
     "decisions": {
       "type": "array",
@@ -20,7 +20,7 @@
     },
     "attention": {
       "type": "array",
-      "description": "What the PR reviewer must act on, one short sentence each: production bugs the tests exposed, behavior in scope left untested and why. Empty when the tests cover the change; this is the only report text shown on the PR.",
+      "description": "What the PR reviewer must act on, one short sentence each: production bugs the tests exposed, behavior in scope left untested and why. Empty when the tests cover the change. Shown on the PR.",
       "items": { "type": "string" }
     },
     "skills_used": {

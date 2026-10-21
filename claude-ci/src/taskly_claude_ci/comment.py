@@ -88,6 +88,10 @@ def render(out: Path, run_url: str, footer: str) -> str:
         status = _STATUS[result["status"]]
     lines = [MARKER, f"## 🧪 Test agent (Claude Code): {status}", "", f"[run log]({run_url}){COMMIT_SLOT}", ""]
 
+    report = (result.get("report") if result else None) or {}
+    if summary := safe(str(report.get("summary", ""))).strip():
+        lines += [f"> {summary}", ""]
+
     if tests:
         lines += ["**Now covered**" if result and result["status"] == "ok" else "**Written, not committed**", ""]
         for path, names in tests.items():
@@ -98,7 +102,6 @@ def render(out: Path, run_url: str, footer: str) -> str:
     if coverage := read("coverage.md").strip():
         lines += [coverage, ""]
 
-    report = (result.get("report") if result else None) or {}
     untested = {s["path"]: s["reason"] for s in plan["skipped"] if s["excluded"]}
     for decision in report.get("decisions", []):
         if decision.get("action") == "skip":
