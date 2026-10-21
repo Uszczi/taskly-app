@@ -1,6 +1,12 @@
-import type { Filter, Sort, Todo, TodoInput } from '../types'
+import type { CardTone } from '../../../design-system'
+import type { Filter, Priority, Sort, Todo, TodoInput } from '../types'
 
 export const priorityLabels = { low: 'Low', medium: 'Medium', high: 'High' }
+export const priorityTones: Record<Priority, CardTone> = {
+  low: 'neutral',
+  medium: 'info',
+  high: 'warning',
+}
 const priorityOrder = { high: 0, medium: 1, low: 2 }
 
 export function validateTodo(input: TodoInput): Record<string, string> {
