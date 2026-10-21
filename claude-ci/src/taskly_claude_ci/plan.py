@@ -82,11 +82,7 @@ def render_task(plan: Plan) -> str:
     if plan["changed_tests"]:
         lines += ["Test files this pull request already changes (check them before duplicating):"]
         lines += [f"- `{p}`" for p in plan["changed_tests"]] + [""]
-    lines.append(
-        "For each source file, decide add, update or skip following the `test-scope` skill, "
-        "write the tests at the listed paths and run them. Every test file you write ends "
-        "either green or reported as a production bug."
-    )
+    lines.append("For each source file, decide add, update or skip following the `test-scope` skill.")
     return "\n".join(lines)
 
 
