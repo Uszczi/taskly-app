@@ -29,7 +29,7 @@ class ExitCode(IntEnum):
     PROVIDER_TRANSIENT = 4  # rate limit, overload, 5xx, network: worth retrying
     PROVIDER_FATAL = 5  # billing, auth, bad request, context window: retrying won't help
     AGENT_FAILED = 6  # model misbehaved or ran out of budget
-    TESTS_FAILED = 7  # a written test file failed its last run or was never run
+    TESTS_FAILED = 7  # a written test file fails when all of them are rerun after the agent
 
 
 @dataclass(frozen=True)

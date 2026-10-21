@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from pydantic_ai.usage import UsageLimits
 from .agent import Deps, agent
 from .changes import GitError, Plan, plan_for_diff, plan_for_untested, render_task
 from .errors import ExitCode, Failure, classify
+from .paths import PathNotAllowed
+from .runner import Target, TestRun, run_tests
 from .usage import format_usage
 from .verbose import print_tool_events
 
@@ -94,8 +97,10 @@ def main() -> None:
         sys.exit(failure.code)
     finally:
         print(format_usage(usage, args.model), file=sys.stderr)
-    unverified = _unverified_tests(deps)
+    verification = verify_written_tests(repo_root, deps.written)
+    unverified = unverified_tests(verification)
     output = _run_json(plan, deps, report=result.output.model_dump(), error=None)
+    output["verification"] = [_test_run_json(r) for r in verification]
     output["unverified_tests"] = unverified
     print(json.dumps(output, indent=2))
     if unverified:
@@ -112,21 +117,36 @@ def _run_json(plan: Plan | None, deps: Deps, report: dict | None, error: Failure
         "error": {"kind": error.kind, "message": error.message} if error is not None else None,
         # Facts recorded by the tools, independent of what the model reports.
         "files_written": deps.written,
-        "test_runs": [
-            {"target": r.target, "paths": list(r.paths), "exit_code": r.exit_code, "passed": r.passed}
-            for r in deps.test_runs
-        ],
+        "test_runs": [_test_run_json(r) for r in deps.test_runs],
     }
 
 
-def _unverified_tests(deps: Deps) -> list[str]:
-    """Written test files whose last run failed, or that were never run."""
-    last_passed: dict[str, bool] = {}
-    for run in deps.test_runs:
-        for path in run.paths:
-            last_passed[path] = run.passed
-    return [
-        path
-        for path in deps.written
-        if Path(path).name != "__init__.py" and not last_passed.get(path, False)
-    ]
+def _test_run_json(run: TestRun) -> dict:
+    return {"target": run.target, "paths": list(run.paths), "exit_code": run.exit_code, "passed": run.passed}
+
+
+def verify_written_tests(
+    repo_root: Path, written: list[str], run: Callable[[Path, Target, list[str]], TestRun] = run_tests
+) -> list[TestRun]:
+    """Rerun every test file the agent wrote, all together per area, with no model.
+
+    The agent's own runs are not the verdict: it may fix one file and rerun only
+    that one, which says nothing about the files that ran next to it before.
+    """
+    by_area: dict[Target, list[str]] = {}
+    for path in written:
+        if Path(path).name == "__init__.py":
+            continue
+        by_area.setdefault("backend" if path.startswith("backend/") else "frontend", []).append(path)
+    runs = []
+    for area, paths in by_area.items():
+        try:
+            runs.append(run(repo_root, area, paths))
+        except PathNotAllowed as exc:
+            runs.append(TestRun(area, tuple(paths), 126, str(exc)))
+    return runs
+
+
+def unverified_tests(verification: list[TestRun]) -> list[str]:
+    """Test files whose verification run failed."""
+    return [path for run in verification if not run.passed for path in run.paths]

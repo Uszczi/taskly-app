@@ -62,7 +62,7 @@ def test_success_lists_covered_behaviors_and_leaves_a_commit_slot() -> None:
     assert "## 🧪 Test agent: ✅ 4 tests added, passing" in body
     assert f"[run log](https://run){COMMIT_SLOT}" in body
     assert "**Now covered**" in body
-    assert "- `Item.test.tsx`\n  - tints the card by priority" in body
+    assert "- `frontend/src/a/Item.test.tsx`\n  - tints the card by priority" in body
     assert "  - rejects empty title" in body
     assert "<sub>anthropic:claude-haiku-5-5 · $0.007696 · 7 requests</sub>" in body
 
@@ -95,7 +95,7 @@ def test_failed_tests_are_flagged_and_not_reported_as_covered() -> None:
 
     assert "not committed" in body
     assert "**Written, not committed**" in body and "Now covered" not in body
-    assert "- `backend/tests/test_x.py` fails or was never run." in body
+    assert "- `backend/tests/test_x.py` fails in the final test run." in body
 
 
 def test_success_without_new_tests_says_none_were_needed() -> None:
@@ -147,3 +147,16 @@ def test_model_skips_join_the_table_but_other_decisions_stay_out() -> None:
     assert "| `frontend/src/design-system/Tag.tsx` | excluded from frontend coverage |" in body
     assert "| `frontend/src/a/todos.ts` | only a constant \\| tested via Item |" in body
     assert "backend/app/x.py" not in body and "new module" not in body
+
+
+def test_coverage_section_follows_the_covered_tests() -> None:
+    coverage = "**Coverage**\n\n| File | Before | After | Change |\n|---|---|---|---|\n| **backend total** | 40% | 50% | +10 |\n"
+
+    body = render(RESULT, ExitCode.OK, "", "https://run", PATCH, coverage)
+
+    assert body.index("**Now covered**") < body.index("**Coverage**") < body.index("**Needs your attention**")
+    assert "| **backend total** | 40% | 50% | +10 |" in body
+
+
+def test_no_coverage_section_without_measurements() -> None:
+    assert "**Coverage**" not in render(RESULT, ExitCode.OK, "", "https://run", PATCH, "")

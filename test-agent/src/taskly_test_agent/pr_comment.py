@@ -24,7 +24,7 @@ _STATUS = {
     ExitCode.PROVIDER_TRANSIENT: "⚠️ Model provider unavailable (retries exhausted)",
     ExitCode.PROVIDER_FATAL: "❌ Model provider error",
     ExitCode.AGENT_FAILED: "❌ Agent failed",
-    ExitCode.TESTS_FAILED: "❌ Generated tests fail or were not run; not committed",
+    ExitCode.TESTS_FAILED: "❌ Generated tests fail; not committed",
 }
 
 _FILE = re.compile(r"^diff --git a/.+ b/(.+)$")
@@ -79,7 +79,9 @@ def _footer(usage: str) -> str:
     return " · ".join(p for p in parts if p)
 
 
-def render(result: dict | None, exit_code: int, usage: str, run_url: str, patch: str = "") -> str:
+def render(
+    result: dict | None, exit_code: int, usage: str, run_url: str, patch: str = "", coverage: str = ""
+) -> str:
     tests = added_tests(patch)
     count = sum(len(names) for names in tests.values())
     if exit_code == ExitCode.OK:
@@ -97,9 +99,13 @@ def render(result: dict | None, exit_code: int, usage: str, run_url: str, patch:
         title = "Now covered" if exit_code == ExitCode.OK else "Written, not committed"
         lines += [f"**{title}**", ""]
         for path, names in tests.items():
-            lines.append(f"- `{_safe(Path(path).name)}`")
+            lines.append(f"- `{_safe(path)}`")
             lines += [f"  - {_safe(name)}" for name in names]
         lines.append("")
+
+    # Written by .github/scripts/coverage.sh from the coverage reports; no model text.
+    if coverage.strip():
+        lines += [coverage.strip(), ""]
 
     # Changed source code left without tests, by the coverage rules or by the model's
     # call: the reviewer checks it by eye.
@@ -122,8 +128,8 @@ def render(result: dict | None, exit_code: int, usage: str, run_url: str, patch:
     else:
         if error := result.get("error"):
             attention.append(f"Error `{error['kind']}`: {_safe(error['message'])}")
-        # Recorded by the tools, not claimed by the model.
-        attention += [f"`{p}` fails or was never run." for p in result.get("unverified_tests") or []]
+        # From the final rerun without the model, not from the model's claims.
+        attention += [f"`{p}` fails in the final test run." for p in result.get("unverified_tests") or []]
         if report := result.get("report"):
             attention += [_safe(item) for item in report.get("attention", [])]
     if attention:
@@ -139,6 +145,7 @@ def main() -> None:
     parser.add_argument("--result", type=Path, required=True, help="agent stdout (JSON)")
     parser.add_argument("--stderr", type=Path, required=True, help="agent stderr")
     parser.add_argument("--patch", type=Path, help="the test patch the run produced")
+    parser.add_argument("--coverage", type=Path, help="coverage section from .github/scripts/coverage.sh")
     parser.add_argument("--exit-code", type=int, required=True)
     parser.add_argument("--run-url", required=True)
     args = parser.parse_args()
@@ -150,4 +157,5 @@ def main() -> None:
     stderr = args.stderr.read_text() if args.stderr.exists() else ""
     usage = stderr[stderr.find("── usage:"):] if "── usage:" in stderr else ""
     patch = args.patch.read_text() if args.patch and args.patch.exists() else ""
-    print(render(result, args.exit_code, usage, args.run_url, patch), end="")
+    coverage = args.coverage.read_text() if args.coverage and args.coverage.exists() else ""
+    print(render(result, args.exit_code, usage, args.run_url, patch, coverage), end="")

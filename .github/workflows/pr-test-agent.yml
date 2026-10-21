@@ -69,6 +69,13 @@ jobs:
           npm ci --prefix frontend
           uv sync --project test-agent --frozen --no-dev
 
+      - name: Coverage before
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          mkdir -p out
+          .github/scripts/coverage.sh measure "$BASE_SHA" out/coverage-before.json
+
       - name: Run test agent
         id: agent
         env:
@@ -95,6 +102,16 @@ jobs:
           done
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
 
+      - name: Coverage after
+        if: always() && steps.agent.outcome != 'skipped'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          .github/scripts/coverage.sh measure "$BASE_SHA" out/coverage-after.json
+          .github/scripts/coverage.sh render "$BASE_SHA" out/coverage-before.json out/coverage-after.json \
+            > out/coverage.md
+          cat out/coverage.md
+
       - name: Build test patch and PR comment
         if: always() && steps.agent.outcome != 'skipped'
         env:
@@ -109,6 +126,7 @@ jobs:
           fi
           uv run --project test-agent --frozen --no-dev taskly-pr-comment \
             --result out/result.json --stderr out/stderr.log --patch out/tests.patch \
+            --coverage out/coverage.md \
             --exit-code "${EXIT_CODE:-1}" --run-url "$RUN_URL" > out/comment.md
           cat out/comment.md >> "$GITHUB_STEP_SUMMARY"
 

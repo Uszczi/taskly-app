@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from taskly_test_agent import _unverified_tests
-from taskly_test_agent.agent import Deps
+from taskly_test_agent import unverified_tests, verify_written_tests
+from taskly_test_agent.paths import PathNotAllowed
 from taskly_test_agent.runner import TestRun
 
 
@@ -81,17 +81,38 @@ def test_bad_base_ref_is_a_config_error(repo: Path) -> None:
     assert proc.stderr.startswith("error [git]:")
 
 
-def run(passed: bool, *paths: str) -> TestRun:
-    return TestRun("backend", paths, 0 if passed else 1, "")
+def test_written_tests_are_rerun_together_per_area() -> None:
+    calls = []
 
+    def fake_run(repo_root, target, paths):
+        calls.append((target, paths))
+        return TestRun(target, tuple(paths), 0 if target == "backend" else 1, "")
 
-def test_written_tests_must_pass_their_last_run() -> None:
-    deps = Deps(repo_root=Path("."))
-    deps.written = ["backend/tests/__init__.py", "backend/tests/test_a.py", "backend/tests/test_b.py", "backend/tests/test_c.py"]
-    deps.test_runs = [
-        run(False, "backend/tests/test_a.py", "backend/tests/test_b.py"),
-        run(True, "backend/tests/test_a.py"),
+    written = [
+        "backend/tests/__init__.py",
+        "backend/tests/test_a.py",
+        "frontend/src/a.test.ts",
+        "backend/tests/test_b.py",
+        "frontend/src/b.test.tsx",
     ]
+    runs = verify_written_tests(Path("."), written, run=fake_run)
 
-    # test_a was fixed, test_b still fails, test_c never ran; __init__.py is not a test.
-    assert _unverified_tests(deps) == ["backend/tests/test_b.py", "backend/tests/test_c.py"]
+    # __init__.py is not a test; each area runs once with every file it got.
+    assert calls == [
+        ("backend", ["backend/tests/test_a.py", "backend/tests/test_b.py"]),
+        ("frontend", ["frontend/src/a.test.ts", "frontend/src/b.test.tsx"]),
+    ]
+    assert unverified_tests(runs) == ["frontend/src/a.test.ts", "frontend/src/b.test.tsx"]
+
+
+def test_a_test_file_that_cannot_be_run_is_unverified() -> None:
+    def refuse(repo_root, target, paths):
+        raise PathNotAllowed("gone")
+
+    runs = verify_written_tests(Path("."), ["backend/tests/test_a.py"], run=refuse)
+
+    assert unverified_tests(runs) == ["backend/tests/test_a.py"]
+
+
+def test_nothing_written_needs_no_verification() -> None:
+    assert verify_written_tests(Path("."), []) == []
