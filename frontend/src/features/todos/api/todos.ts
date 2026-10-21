@@ -1,5 +1,5 @@
 import { request } from '../../../lib/http'
-import type { Todo, TodoInput } from '../types'
+import type { Todo, TodoInput, TodoStats } from '../types'
 
 export const todosApi = {
   list: (signal?: AbortSignal) => request<Todo[]>('/todos', { signal }),
@@ -31,4 +31,8 @@ export const todosApi = {
     })
   },
   remove: (id: number) => request<void>(`/todos/${id}`, { method: 'DELETE' }),
+  stats: (signal?: AbortSignal) =>
+    request<TodoStats>('/todos/stats', { signal }),
+  clearCompleted: () =>
+    request<{ deleted: number }>('/todos/completed', { method: 'DELETE' }),
 }
