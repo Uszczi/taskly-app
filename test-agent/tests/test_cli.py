@@ -45,7 +45,9 @@ def test_docs_only_change_skips_the_agent_without_a_model(repo: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
     assert out["agent_ran"] is False
-    assert out["plan"]["skipped"] == [{"path": "README.md", "reason": "not backend or frontend source"}]
+    assert out["plan"]["skipped"] == [
+        {"path": "README.md", "reason": "not backend or frontend source", "excluded": False}
+    ]
 
 
 def test_plan_only_lists_targets_without_a_model(repo: Path) -> None:

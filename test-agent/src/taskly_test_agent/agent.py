@@ -31,6 +31,14 @@ class FileDecision(BaseModel):
 class Report(BaseModel):
     summary: str = Field(description="One or two sentences on what was done.")
     decisions: list[FileDecision] = Field(default_factory=list)
+    attention: list[str] = Field(
+        default_factory=list,
+        description=(
+            "What the PR reviewer must act on, one short sentence each: production bugs "
+            "the tests exposed, behavior in scope left untested and why. Empty when the "
+            "tests cover the change; this is the only report text shown on the PR."
+        ),
+    )
     skills_used: list[str] = Field(
         default_factory=list, description="Ids of the skills you loaded with load_capability."
     )

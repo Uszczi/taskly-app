@@ -26,6 +26,9 @@ changes. For each source file listed below, decide add, update or skip
 following the `test-scope` skill, write the tests and run them. Every test
 file you write ends either green or reported as a production bug.
 
-Your final answer is the structured report: a one or two sentence summary,
-one decision per source file (add, update or skip, with the reason), and the
-names of the skills you loaded.
+Your final answer is the structured report: a one or two sentence summary, one
+decision per source file (add, update or skip, with the reason), `attention`,
+and the names of the skills you loaded. `attention` lists what the PR reviewer
+must act on, one short sentence each: production bugs the tests exposed,
+behavior in scope left untested and why. It is empty when the tests cover the
+change, and it is the only report text shown on the PR.

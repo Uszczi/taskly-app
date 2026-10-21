@@ -58,6 +58,7 @@ class Target:
 class Skipped:
     path: str
     reason: str
+    excluded: bool = False  # source code excluded from coverage, not just a non-source file
 
 
 @dataclass(frozen=True)
@@ -79,12 +80,12 @@ def classify(path: str) -> tuple[Area, str] | Skipped:
     """(area, conventional test path) for testable sources, else Skipped with a reason."""
     if path.startswith("backend/app/") and path.endswith(".py"):
         if Path(path).name in _BACKEND_SKIP or path in _BACKEND_SKIP_PATHS:
-            return Skipped(path, "excluded from backend coverage")
+            return Skipped(path, "excluded from backend coverage", excluded=True)
         rel = Path(path).relative_to("backend/app")
         return "backend", f"backend/tests/{rel.parent / f'test_{rel.name}'}"
     if path.startswith("frontend/src/") and path.endswith((".ts", ".tsx")):
         if any(fnmatch(path, glob) for glob in _FRONTEND_SKIP_GLOBS):
-            return Skipped(path, "excluded from frontend coverage")
+            return Skipped(path, "excluded from frontend coverage", excluded=True)
         stem, ext = path.rsplit(".", 1)
         return "frontend", f"{stem}.test.{ext}"
     return Skipped(path, "not backend or frontend source")

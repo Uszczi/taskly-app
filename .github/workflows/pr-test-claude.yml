@@ -215,42 +215,45 @@ jobs:
           if [ -f "${EXECUTION_FILE:-}" ]; then
             usage=$(jq -c '[.[] | select(.type == "result")] | last // null' "$EXECUTION_FILE")
           fi
-          # The report comes from a model that read the PR's code: no HTML, no mentions, no table breaks.
-          jq -rn --slurpfile v "$OUT_DIR/verify.json" --argjson usage "$usage" \
+          tests='[]'
+          if [ -f "$OUT_DIR/tests.patch" ]; then
+            tests=$(jq -c -Rn -f .github/claude-test-agent/added-tests.jq < "$OUT_DIR/tests.patch")
+          fi
+          # Report text and test names come from a model that read the PR's code:
+          # no HTML (nor a fake commit slot), no mentions.
+          jq -rn --slurpfile v "$OUT_DIR/verify.json" --argjson usage "$usage" --argjson tests "$tests" \
             --arg model "$MODEL" --arg run_url "$RUN_URL" '
             def safe: gsub("[<>]"; "") | gsub("@"; "@​") | gsub("\\|"; "\\|") | gsub("\n"; " ");
             $v[0] as $v
             | (env.REPORT | try fromjson catch null) as $r
-            | {ok: "✅ Tests written and passing",
+            | ($tests | length) as $n
+            | {ok: (if $n > 0 then "✅ \($n) test\(if $n == 1 then "" else "s" end) added, passing"
+                    else "✅ No new tests needed" end),
                tests_failed: "❌ Generated tests fail; not committed",
                violation: "❌ Claude changed files that are not tests; not committed",
                agent_failed: "❌ Claude Code failed or gave no report",
-               nothing_to_test: "✅ No changed source files; Claude was not called"}[$v.status] as $status
-            | ["<!-- taskly-test-agent:claude -->", "## 🧪 Test agent (Claude Code)", "",
-               "**\($status)** · [run log](\($run_url))", ""]
-            + (if $r then ["> \($r.summary | safe)", ""]
-                 + (if ($r.decisions | length) > 0 then
-                      ["| Source | Action | Reason |", "|---|---|---|"]
-                      + [$r.decisions[] | "| `\(.path | safe)` | \(.action) | \(.reason | safe) |"] + [""]
-                    else [] end)
-                 + (if ($r.skills_used | length) > 0 then
-                      ["Skills used: " + ([$r.skills_used[] | "`\(safe)`"] | join(", ")), ""]
-                    else [] end)
+               nothing_to_test: "✅ No changed source file needs unit tests"}[$v.status] as $status
+            | (if $r then [$r.decisions[] | select(.action == "skip")] else [] end) as $skipped
+            | ([$v.runs[] | select(.exit_code != 0) | "\(.target) tests fail when rerun without the model (exit \(.exit_code))."]
+               + [$v.violations[] | "`\(safe)` is not a test file; nothing was committed."]
+               + (if $r then [$r.attention[]? | safe] else [] end)) as $attention
+            | ["<!-- taskly-test-agent:claude -->", "## 🧪 Test agent (Claude Code): \($status)", "",
+               "[run log](\($run_url))<!-- commit -->", ""]
+            + (if $n > 0 then
+                 ["**\(if $v.status == "ok" then "Now covered" else "Written, not committed" end)**", ""]
+                 + [$tests | group_by(.path) | sort_by(.[0].path)[]
+                    | "- `\(.[0].path | split("/") | last | safe)`", (.[] | "  - \(.name | safe)")]
+                 + [""]
                else [] end)
-            + (if ($v.runs | length) > 0 then
-                 ["| Rerun without the model | Result |", "|---|---|"]
-                 + [$v.runs[] | "| \(.target) | \(if .exit_code == 0 then "✅ passed" else "❌ exit \(.exit_code)" end) |"] + [""]
+            + (if ($skipped | length) > 0 then
+                 ["**Changed files without tests**", "", "| File | Why |", "|---|---|"]
+                 + [$skipped[] | "| `\(.path | safe)` | \(.reason | safe) |"] + [""]
                else [] end)
-            + (if ($v.violations | length) > 0 then ["Not allowed:"] + [$v.violations[] | "- `\(.)`"] + [""] else [] end)
-            + (if ($v.written | length) > 0 then
-                 ["Files written (\(if $v.status == "ok" then "committed to this branch" else "attached as a patch in the run artifacts" end)):"]
-                 + [$v.written[] | "- `\(.)`"] + [""]
+            + (if ($attention | length) > 0 then
+                 ["**Needs your attention**", ""] + [$attention[] | "- \(.)"] + [""]
                else [] end)
             + (if $usage then
-                 ["<details><summary>Usage</summary>", "", "```",
-                  "model: \($model)  turns: \($usage.num_turns // "?")",
-                  "input: \($usage.usage.input_tokens // 0)  cache read: \($usage.usage.cache_read_input_tokens // 0)  cache write: \($usage.usage.cache_creation_input_tokens // 0)  output: \($usage.usage.output_tokens // 0)",
-                  "cost: $\($usage.total_cost_usd // "?")", "```", "", "</details>"]
+                 ["<sub>\($model) · $\($usage.total_cost_usd // "?") · \($usage.num_turns // "?") turns</sub>"]
                else [] end)
             | join("\n")' > "$OUT_DIR/comment.md"
           cat "$OUT_DIR/comment.md" >> "$GITHUB_STEP_SUMMARY"
@@ -326,6 +329,9 @@ jobs:
               commit -q -m "test: add unit tests for changed code" -m "Generated by Claude Code (PR test agent alternative)."
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$HEAD_REF"
+          sha=$(git rev-parse HEAD)
+          link=" · committed in [\`${sha:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$sha)"
+          sed -i "s|<!-- commit -->|$link|" ../out/comment.md
 
       - name: Post or update the PR comment
         if: hashFiles('out/comment.md') != ''

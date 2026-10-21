@@ -195,3 +195,12 @@ def test_long_diffs_are_truncated(repo: Path) -> None:
 
 def test_untested_plan_has_no_diffs(repo: Path) -> None:
     assert all(t.diff is None for t in plan_for_untested(repo).targets)
+
+
+def test_skipped_source_code_is_marked_excluded(tmp_path: Path) -> None:
+    plan = build_plan(tmp_path, ["backend/app/schemas.py", "README.md"])
+
+    assert {(s.path, s.excluded) for s in plan.skipped} == {
+        ("backend/app/schemas.py", True),
+        ("README.md", False),
+    }

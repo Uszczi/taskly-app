@@ -14,7 +14,8 @@
         "required": ["path", "action", "reason"]
       }
     },
+    "attention": { "type": "array", "items": { "type": "string" } },
     "skills_used": { "type": "array", "items": { "type": "string" } }
   },
-  "required": ["summary", "decisions", "skills_used"]
+  "required": ["summary", "decisions", "attention", "skills_used"]
 }
