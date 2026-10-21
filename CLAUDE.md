@@ -10,6 +10,9 @@ workflow that writes unit tests for the code a pull request changes
   comment), standard library only. `uv run pytest` there runs its tests with no
   model or network.
 
+The `justfile` runs the workflow's steps locally on the checked-out branch:
+`just --list`.
+
 ## Two kinds of skills
 
 - `agent-shared/skills/` are the **test agent's** skills, copied into
