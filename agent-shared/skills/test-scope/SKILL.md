@@ -1,6 +1,6 @@
 ---
 name: test-scope
-description: Decide which changed or untested files in Taskly deserve unit tests and which to skip. Load this first, before writing any test.
+description: Decide which files a Taskly pull request changes deserve unit tests and which to skip. Load this first, before writing any test.
 ---
 
 # Deciding what to test
@@ -10,13 +10,10 @@ unrelated existing tests stay as they are.
 
 ## Scope
 
-The task says which kind of run this is:
-
-- **Pull request**: each file comes with its diff, and the scope is the
-  behavior that diff adds or changes. Tests pin the new behavior where it is
-  observable: a changed mapping is asserted where a component renders it, not
-  only as a constant. Untouched code in the same file keeps its current tests.
-- **Backfill**: no diffs, and the scope is the whole file.
+Each file in the task comes with its diff, and the scope is the behavior that
+diff adds or changes. Tests pin the new behavior where it is observable: a
+changed mapping is asserted where a component renders it, not only as a
+constant. Untouched code in the same file keeps its current tests.
 
 A change to a skipped file (a design-system component, a type) is tested
 through the listed file that uses it.
