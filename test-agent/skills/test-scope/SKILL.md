@@ -8,6 +8,19 @@ description: Decide which changed or untested files in Taskly deserve unit tests
 You write **unit test files only**; production code, configuration, and
 unrelated existing tests stay as they are.
 
+## Scope
+
+The task says which kind of run this is:
+
+- **Pull request**: each file comes with its diff, and the scope is the
+  behavior that diff adds or changes. Tests pin the new behavior where it is
+  observable: a changed mapping is asserted where a component renders it, not
+  only as a constant. Untouched code in the same file keeps its current tests.
+- **Backfill**: no diffs, and the scope is the whole file.
+
+A change to a skipped file (a design-system component, a type) is tested
+through the listed file that uses it.
+
 ## Files to skip
 
 The coverage exclusions are the source of truth: `omit` in
@@ -27,7 +40,7 @@ Read the source file and its existing test, then decide one of:
 - **add**: no test file exists yet. Backend tests mirror the source path under
   `backend/tests/` with a `test_` prefix; frontend tests sit next to the source
   as `<Name>.test.ts(x)`.
-- **update**: a test file exists but does not cover the changed behavior.
+- **update**: a test file exists but does not cover the behavior in scope.
   Extend it, keeping the tests that still pass and still make sense.
 - **skip**: the file is excluded or has no testable behavior. Say why.
 
@@ -46,5 +59,6 @@ Write a few precise *behavioral* tests rather than many shallow ones:
 ## Done
 
 Every file in the plan has exactly one `add`/`update`/`skip` decision in the
-report, and every test file you wrote ends either *green* in `run_tests` or
-reported as a production bug.
+report, every behavior in scope has a test that fails without it, and every
+test file you wrote ends either *green* in `run_tests` or reported as a
+production bug.

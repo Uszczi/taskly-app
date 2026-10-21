@@ -16,7 +16,13 @@ from .verbose import print_tool_events
 
 
 def _plan_json(plan: Plan | None) -> dict | None:
-    return asdict(plan) if plan is not None else None
+    """The plan without diffs: they are the model's input, not a result."""
+    if plan is None:
+        return None
+    data = asdict(plan)
+    for target in data["targets"]:
+        del target["diff"]
+    return data
 
 
 def main() -> None:

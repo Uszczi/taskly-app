@@ -71,6 +71,14 @@ jobs:
             echo
             echo "Source files this pull request changes:"
             sed 's/^/- /' "$OUT_DIR/changed.txt"
+            echo
+            echo "Their diff (truncated at 60000 bytes; read the files for the rest):"
+            echo
+            echo '```diff'
+            xargs -d '\n' git diff --no-color --no-ext-diff "$BASE_SHA...HEAD" -- < "$OUT_DIR/changed.txt" \
+              | head -c 60000
+            echo
+            echo '```'
             echo "$delim"
           } >> "$GITHUB_OUTPUT"
           echo "schema=$(jq -c . .github/claude-test-agent/report.schema.json)" >> "$GITHUB_OUTPUT"
