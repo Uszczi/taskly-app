@@ -21,12 +21,6 @@ def main() -> None:
         "--base", required=True, help="PR base SHA; the diff starts at the merge base"
     )
     prompt.add_argument(
-        "--instructions",
-        type=Path,
-        required=True,
-        help="the agent's prompt, put before the task",
-    )
-    prompt.add_argument(
         "--schema", type=Path, required=True, help="the report's JSON schema"
     )
 
@@ -61,7 +55,7 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     if args.command == "prompt":
-        print(commands.prompt(repo, args.base, args.instructions, args.schema, out))
+        print(commands.prompt(repo, args.base, args.schema, out))
     elif args.command == "coverage":
         print(commands.coverage(repo, args.base, out, args.name))
     elif args.command == "verify":

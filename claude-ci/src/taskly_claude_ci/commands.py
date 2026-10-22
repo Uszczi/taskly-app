@@ -10,14 +10,14 @@ from .models import Coverage, Execution, Plan, Result, SkipRules
 from .plan import SKIP_RULES, build_plan, render_task
 
 
-def prompt(repo: Path, base: str, instructions: Path, schema: Path, out: Path) -> str:
+def prompt(repo: Path, base: str, schema: Path, out: Path) -> str:
     rules = SkipRules.model_validate_json((repo / SKIP_RULES).read_text())
     plan = build_plan(repo, base, rules)
     write_json(out / "plan.json", plan)
     if not plan.targets:
         write_json(out / "result.json", Result(status="nothing_to_test"))
         return output("has_targets", "false")
-    text = f"{instructions.read_text().strip()}\n\n{render_task(plan)}\n"
+    text = f"{render_task(plan)}\n"
     (out / "prompt.md").write_text(text)
     compact_schema = json.dumps(json.loads(schema.read_text()), separators=(",", ":"))
     return "\n".join(

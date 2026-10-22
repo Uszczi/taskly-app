@@ -51,7 +51,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           taskly-claude-ci --out "$OUT_DIR" prompt --base "$BASE_SHA" \
-            --instructions .github/claude-test-agent/prompt.md \
             --schema .github/claude-test-agent/report.schema.json >> "$GITHUB_OUTPUT"
 
       - name: Install bubblewrap
@@ -80,6 +79,7 @@ jobs:
           rm -rf .claude/skills
           mkdir -p .claude/skills
           cp -r .github/claude-test-agent/skills/. .claude/skills/
+          cp -r .github/claude-test-agent/agents .claude/agents
 
       - name: Coverage before
         if: steps.plan.outputs.has_targets == 'true'
@@ -100,6 +100,7 @@ jobs:
           settings: .github/claude-test-agent/settings.json
           prompt: ${{ steps.plan.outputs.prompt }}
           claude_args: >-
+            --agent unit-test-writer
             --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
             --max-turns 200
             --json-schema '${{ steps.plan.outputs.schema }}'
@@ -111,7 +112,7 @@ jobs:
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
           REPORT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          rm -rf .claude/skills && git checkout -q -- .claude
+          rm -rf .claude/skills .claude/agents && git checkout -q -- .claude
 
           git add -A
           if ! git diff --cached --quiet; then
