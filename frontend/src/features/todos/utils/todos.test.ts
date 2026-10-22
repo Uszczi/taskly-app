@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTodos } from './todos'
+import { priorityTones, selectTodos } from './todos'
 import type { Todo } from '../types'
 
 const base: Todo = {
@@ -29,5 +29,15 @@ describe('selectTodos', () => {
     const todos = [base, high]
     expect(selectTodos(todos, 'all', '', 'priority')).toEqual([high, base])
     expect(todos).toEqual([base, high])
+  })
+})
+
+describe('priorityTones', () => {
+  it('maps each priority to its card tone', () => {
+    expect(priorityTones).toEqual({
+      low: 'neutral',
+      medium: 'info',
+      high: 'warning',
+    })
   })
 })
