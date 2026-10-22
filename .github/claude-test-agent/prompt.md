@@ -27,7 +27,8 @@ No one answers questions or approves tool calls.
 
 ### Tools
 
-- Explore with Read, Glob and Grep. Write with Edit or Write.
+- Explore with Read, Glob and Grep. Write with Edit or Write. Delegate with
+  Agent (see Large tasks); subagents work under the same rules.
 - Bash runs only the test and typecheck commands from the backend and frontend
   skills, typed exactly as there: one command per call, from the repository
   root, with nothing around it (no `cd`, `&&`, pipes or redirects). Every other
@@ -44,6 +45,24 @@ Your turns are limited, and the task already holds each file's diff.
    a test needs: fixtures, mocks, the types it builds.
 2. Write an area's test files, then run them together in one call (for the
    frontend, follow with the typecheck). Fix and rerun until green.
+
+### Large tasks
+
+When the task lists more than four source files, cut it into slices and give
+each to a `general-purpose` subagent, all dispatched in one message so they run
+in parallel:
+
+- Slice by area first, then by source file. Each test file belongs to exactly
+  one slice. Shared fixtures and helpers (`conftest.py`, `frontend/src/test/`)
+  stay yours: write those a slice needs before dispatching it.
+- A subagent sees only your brief, never this prompt. Each brief carries its
+  source files with their diffs and test paths, the skill to load for its area,
+  the Bash rules from Tools, and that every file it writes is final. It asks
+  back for the test files written, a decision with a reason per source file,
+  the last run's result, and any production bug found.
+- Their answers go into your report. Each area's last run stays yours: once
+  every slice is back, run all of the area's test files in one call (and the
+  typecheck), and fix until green.
 
 ### What happens after you
 

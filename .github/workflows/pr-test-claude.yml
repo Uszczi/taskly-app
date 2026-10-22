@@ -6,7 +6,8 @@
 # skip rules, coverage script, settings) is in .github/claude-test-agent/.
 # Claude Code's guards:
 # - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
-#   anything but .env/.git, edit test files only, run only the test commands;
+#   anything but .env/.git, edit test files only, run only the test commands,
+#   start subagents (which get the same rules);
 # - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
 #   settings.json empties GITHUB_STEP_SUMMARY, so vitest's GitHub reporter does not
 #   try to write the job summary, which is read-only in the sandbox.
