@@ -8,6 +8,8 @@
 # - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
 #   anything but .env/.git, edit test files only, run only the test commands;
 # - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
+#   settings.json empties GITHUB_STEP_SUMMARY, so vitest's GitHub reporter does not
+#   try to write the job summary, which is read-only in the sandbox.
 # The tests Claude runs can still write anywhere in the checkout, so claude-ci is
 # installed before Claude, outside the checkout and not editable: the copy that
 # verifies Claude's work is one Claude could not change.

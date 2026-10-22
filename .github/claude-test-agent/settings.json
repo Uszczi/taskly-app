@@ -1,4 +1,5 @@
 {
+  "env": { "GITHUB_STEP_SUMMARY": "" },
   "permissions": {
     "defaultMode": "dontAsk",
     "allow": [
