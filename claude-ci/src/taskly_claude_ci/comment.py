@@ -7,7 +7,7 @@ MARKER = "<!-- taskly-test-agent:claude -->"
 _STATUS: dict[Status, str] = {
     "tests_failed": "❌ Generated tests fail; no PR opened",
     "violation": "❌ Claude changed files that are not tests; no PR opened",
-    "agent_failed": "❌ Claude Code failed or gave no report",
+    "agent_failed": "❌ Claude Code failed, gave no report or wrote none of its tests",
     "nothing_to_test": "✅ No changed source file needs unit tests",
 }
 _FILE = re.compile(r"^diff --git a/.+ b/(.+)$")
@@ -105,6 +105,11 @@ def usage_footer(entries: list[ExecutionEntry], model: str) -> str:
     return " · ".join(p for p in parts if p)
 
 
+def denied_calls(entries: list[ExecutionEntry]) -> int:
+    results = [e for e in entries if e.type == "result"]
+    return len(results[-1].permission_denials) if results else 0
+
+
 def render(
     result: Result | None,
     plan: Plan,
@@ -113,6 +118,7 @@ def render(
     after: Coverage,
     run_url: str,
     footer: str,
+    denied: int = 0,
 ) -> str:
     tests = added_tests(patch)
     count = sum(len(names) for names in tests.values())
@@ -182,6 +188,10 @@ def render(
             for p in result.violations
         ]
         attention += [safe(item) for item in report.attention] if report else []
+    if denied:
+        attention.append(
+            f"Claude Code denied {denied} tool call(s); see execution.json in the run artifacts."
+        )
     if attention:
         lines += [
             "**Needs your attention**",

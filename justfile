@@ -37,13 +37,10 @@ ci-claude:
     #!/usr/bin/env bash
     set -euo pipefail
     test -f {{out}}/prompt.md || { echo "nothing to test"; exit 0; }
-    trap 'rm -rf .claude/skills .claude/agents && git checkout -q -- .claude' EXIT
-    rm -rf .claude/skills .claude/agents
-    cp -r .github/claude-test-agent/skills .claude/skills
-    cp -r .github/claude-test-agent/agents .claude/agents
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 claude -p "$(cat {{out}}/prompt.md)" \
       --setting-sources project \
-      --agent unit-test-writer \
+      --plugin-dir .github/claude-test-agent \
+      --agent taskly-test-agent:unit-test-writer \
       --settings .github/claude-test-agent/settings.json \
       --model {{model}} --max-turns 200 \
       --json-schema "$(jq -c . .github/claude-test-agent/report.schema.json)" \

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from . import verify as verification
-from .comment import render, usage_footer
+from .comment import denied_calls, render, usage_footer
 from .coverage import measure
 from .github import multiline_output, output
 from .json import read_json, write_json
@@ -43,6 +43,7 @@ def verify(repo: Path, out: Path, report: str | None, conclusion: str) -> str:
 
 def comment(out: Path, run_url: str, execution_file: Path | None, model: str) -> str:
     patch = out / "tests.patch"
+    execution = (read_json(execution_file, Execution) or Execution([])).root
     text = render(
         result=read_json(out / "result.json", Result),
         plan=read_json(out / "plan.json", Plan) or Plan(),
@@ -50,9 +51,8 @@ def comment(out: Path, run_url: str, execution_file: Path | None, model: str) ->
         before=read_json(out / "coverage-before.json", Coverage) or Coverage(),
         after=read_json(out / "coverage-after.json", Coverage) or Coverage(),
         run_url=run_url,
-        footer=usage_footer(
-            (read_json(execution_file, Execution) or Execution([])).root, model
-        ),
+        footer=usage_footer(execution, model),
+        denied=denied_calls(execution),
     )
     (out / "comment.md").write_text(text)
     return text

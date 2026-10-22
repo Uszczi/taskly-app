@@ -1,0 +1,5 @@
+{
+  "name": "taskly-test-agent",
+  "description": "The Taskly unit-test-writer agent and its testing skills",
+  "version": "0.1.0"
+}

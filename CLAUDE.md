@@ -15,9 +15,11 @@ The `justfile` runs the workflow's steps locally on the checked-out branch:
 
 ## Two kinds of skills
 
-- `.github/claude-test-agent/skills/` are the **test agent's** skills, copied into
-  `.claude/skills/` for Claude Code in CI. Edit them as prompts for that agent;
-  `writing-for-agents` applies.
+- `.github/claude-test-agent/skills/` are the **test agent's** skills. The
+  directory is a Claude Code plugin (`taskly-test-agent`) loaded with
+  `--plugin-dir`, never through `.claude/`: claude-code-action replaces `.claude/`
+  with main's copy. Edit them as prompts for that agent; `writing-for-agents`
+  applies.
 - `.claude/skills/` holds symlinks to vendored skills in
   `.agents/skills/`, pinned in `skills-lock.json`. Update them through the
   skills installer, not by hand.

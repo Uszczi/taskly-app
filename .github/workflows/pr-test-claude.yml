@@ -75,11 +75,6 @@ jobs:
           uv venv backend/.venv --python 3.12
           uv pip install --python backend/.venv -r backend/requirements.txt
           npm ci --prefix frontend
-          # .claude/skills holds the developers' skills; Claude in CI gets the shared testing skills.
-          rm -rf .claude/skills
-          mkdir -p .claude/skills
-          cp -r .github/claude-test-agent/skills/. .claude/skills/
-          cp -r .github/claude-test-agent/agents .claude/agents
 
       - name: Coverage before
         if: steps.plan.outputs.has_targets == 'true'
@@ -100,7 +95,8 @@ jobs:
           settings: .github/claude-test-agent/settings.json
           prompt: ${{ steps.plan.outputs.prompt }}
           claude_args: >-
-            --agent unit-test-writer
+            --plugin-dir .github/claude-test-agent
+            --agent taskly-test-agent:unit-test-writer
             --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
             --max-turns 200
             --json-schema '${{ steps.plan.outputs.schema }}'
@@ -112,8 +108,6 @@ jobs:
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
           REPORT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          rm -rf .claude/skills .claude/agents && git checkout -q -- .claude
-
           git add -A
           if ! git diff --cached --quiet; then
             git diff --cached --binary > "$OUT_DIR/tests.patch"
@@ -133,8 +127,9 @@ jobs:
           MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ -f "$EXECUTION_FILE" ]; then cp "$EXECUTION_FILE" "$OUT_DIR/execution.json"; fi
           taskly-claude-ci --out "$OUT_DIR" comment --run-url "$RUN_URL" --model "$MODEL" \
-            --execution-file "$EXECUTION_FILE"
+            --execution-file "$OUT_DIR/execution.json"
           cat "$OUT_DIR/comment.md" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -73,10 +73,11 @@ def verify(
                 )
             )
 
+    claimed = report is not None and any(d.action != "skip" for d in report.decisions)
     status: Status
     if violations:
         status = "violation"
-    elif conclusion != "success" or report is None:
+    elif conclusion != "success" or report is None or (claimed and not written):
         status = "agent_failed"
     elif any(r.exit_code != 0 for r in runs):
         status = "tests_failed"

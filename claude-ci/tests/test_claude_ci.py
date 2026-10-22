@@ -146,6 +146,15 @@ def test_verify_status(
     assert verify(repo, tmp_path, report, conclusion).status == status
 
 
+def test_reported_tests_that_were_never_written_fail_the_agent(
+    repo: Path, tmp_path: Path
+) -> None:
+    decision = {"path": "backend/app/x.py", "action": "add", "reason": "r"}
+    report = json.dumps({**json.loads(REPORT), "decisions": [decision]})
+
+    assert verify(repo, tmp_path, report, "success").status == "agent_failed"
+
+
 def test_a_violation_runs_no_tests(repo: Path, tmp_path: Path) -> None:
     (repo / "backend/app/x.py").write_text("x = 2\n")
 
@@ -223,6 +232,7 @@ def test_comment_shows_tests_coverage_and_skips_with_model_text_made_safe() -> N
         after,
         "https://run",
         "m",
+        denied=2,
     )
 
     assert "✅ 1 test added, passing" in body
@@ -230,6 +240,7 @@ def test_comment_shows_tests_coverage_and_skips_with_model_text_made_safe() -> N
     assert "| **backend total** | – | 90% |  |" in body
     assert "| `backend/app/schemas.py` | excluded |" in body
     assert "@​team" in body and "<b>" not in body and "<i>" not in body
+    assert "Claude Code denied 2 tool call(s)" in body
 
 
 def test_comment_without_a_result_says_verification_did_not_run() -> None:

@@ -84,6 +84,7 @@ class ExecutionEntry(BaseModel):
     type: str = ""
     total_cost_usd: float | None = None
     num_turns: int | None = None
+    permission_denials: list[object] = []
 
 
 Execution = RootModel[list[ExecutionEntry]]
