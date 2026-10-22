@@ -1,12 +1,6 @@
 {
   "version": 1,
   "skills": {
-    "building-pydantic-ai-agents": {
-      "source": "pydantic/skills",
-      "sourceType": "github",
-      "skillPath": "skills/building-pydantic-ai-agents/SKILL.md",
-      "computedHash": "fca23a3734a865f11786ee59230c0df0dc5c1263bb5945c8cf34e712214de35e"
-    },
     "pydantic": {
       "source": "pydantic/skills",
       "sourceType": "github",
