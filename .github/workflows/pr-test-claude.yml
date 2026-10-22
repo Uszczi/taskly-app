@@ -33,8 +33,7 @@ permissions: {}
 jobs:
   generate:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'claude/')
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     environment: CI
     timeout-minutes: 30
