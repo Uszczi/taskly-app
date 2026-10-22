@@ -24,7 +24,7 @@ class FrontendRules(TypedDict):
 
 
 class SkipRules(TypedDict):
-    """agent-shared/skip-rules.json (its `$comment` keys are not read)."""
+    """.github/claude-test-agent/skip-rules.json (its `$comment` keys are not read)."""
 
     backend: BackendRules
     frontend: FrontendRules
@@ -61,7 +61,7 @@ class Decision(TypedDict):
 
 
 class Report(TypedDict, total=False):
-    """Claude's structured output (agent-shared/report.schema.json). Model text: untrusted."""
+    """Claude's structured output (.github/claude-test-agent/report.schema.json). Model text: untrusted."""
 
     summary: str
     decisions: list[Decision]

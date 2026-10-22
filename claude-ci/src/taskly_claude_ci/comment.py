@@ -101,7 +101,7 @@ def render(out: Path, run_url: str, footer: str) -> str:
             lines += [f"- `{safe(path)}`", *[f"  - {safe(name)}" for name in names]]
         lines.append("")
 
-    # Written by agent-shared/coverage.sh from the coverage reports; no model text.
+    # Written by .github/claude-test-agent/coverage.sh from the coverage reports; no model text.
     if coverage := read("coverage.md").strip():
         lines += [coverage, ""]
 

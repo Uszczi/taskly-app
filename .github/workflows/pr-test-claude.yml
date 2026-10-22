@@ -2,8 +2,9 @@
 # (anthropics/claude-code-action) as the engine.
 #
 # The deterministic steps around Claude are claude-ci/ (taskly-claude-ci,
-# standard library only); the agent's data (skills, instructions, report schema,
-# skip rules, coverage script) is in agent-shared/. Claude Code's guards:
+# standard library only); the agent itself (prompt, skills, report schema,
+# skip rules, coverage script, settings) is in .github/claude-test-agent/.
+# Claude Code's guards:
 # - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
 #   anything but .env/.git, edit test files only, run only the test commands;
 # - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
@@ -90,15 +91,14 @@ jobs:
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
-          # Shared instructions first, then Claude's own; the task from the diff comes last.
+          # The agent's prompt, then the task from the diff.
           "$CI_VENV/bin/taskly-claude-ci" --out "$OUT_DIR" prompt --base "$BASE_SHA" \
-            --instructions agent-shared/instructions.md \
             --instructions .github/claude-test-agent/prompt.md >> "$GITHUB_OUTPUT"
           if [ -f "$OUT_DIR/prompt.md" ]; then
             cat "$OUT_DIR/prompt.md"
             delim="EOF_$(openssl rand -hex 16)"
             { echo "prompt<<$delim"; cat "$OUT_DIR/prompt.md"; echo "$delim"; } >> "$GITHUB_OUTPUT"
-            echo "schema=$(jq -c . agent-shared/report.schema.json)" >> "$GITHUB_OUTPUT"
+            echo "schema=$(jq -c . .github/claude-test-agent/report.schema.json)" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install bubblewrap
@@ -126,13 +126,13 @@ jobs:
           # .claude/skills holds the developers' skills; Claude in CI gets the shared testing skills.
           rm -rf .claude/skills
           mkdir -p .claude/skills
-          cp -r agent-shared/skills/. .claude/skills/
+          cp -r .github/claude-test-agent/skills/. .claude/skills/
 
       - name: Coverage before
         if: steps.plan.outputs.has_targets == 'true'
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: agent-shared/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-before.json"
+        run: .github/claude-test-agent/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-before.json"
 
       - name: Run Claude Code
         id: claude
@@ -169,8 +169,8 @@ jobs:
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
-          agent-shared/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-after.json"
-          agent-shared/coverage.sh render "$BASE_SHA" "$OUT_DIR/coverage-before.json" \
+          .github/claude-test-agent/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-after.json"
+          .github/claude-test-agent/coverage.sh render "$BASE_SHA" "$OUT_DIR/coverage-before.json" \
             "$OUT_DIR/coverage-after.json" > "$OUT_DIR/coverage.md"
           cat "$OUT_DIR/coverage.md"
 

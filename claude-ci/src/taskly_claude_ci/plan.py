@@ -1,6 +1,6 @@
 """Which changed source files need tests, and the task Claude gets for them.
 
-Reads the skip rules from agent-shared/skip-rules.json.
+Reads the skip rules from .github/claude-test-agent/skip-rules.json.
 """
 
 import json
@@ -86,14 +86,13 @@ def render_task(plan: Plan) -> str:
     return "\n".join(lines)
 
 
-def write_prompt(repo: Path, base: str, instructions: list[Path], out: Path) -> bool:
+def write_prompt(repo: Path, base: str, instructions: Path, out: Path) -> bool:
     """Write plan.json, and prompt.md when something needs tests. True if Claude should run."""
-    rules: SkipRules = json.loads((repo / "agent-shared/skip-rules.json").read_text())
+    rules: SkipRules = json.loads((repo / ".github/claude-test-agent/skip-rules.json").read_text())
     plan = build_plan(repo, base, rules)
     (out / "plan.json").write_text(json.dumps(plan, indent=2))
     if not plan["targets"]:
         (out / "result.json").write_text(json.dumps(Result(status="nothing_to_test")))
         return False
-    parts = [path.read_text().strip() for path in instructions] + [render_task(plan)]
-    (out / "prompt.md").write_text("\n\n".join(parts) + "\n")
+    (out / "prompt.md").write_text(f"{instructions.read_text().strip()}\n\n{render_task(plan)}\n")
     return True

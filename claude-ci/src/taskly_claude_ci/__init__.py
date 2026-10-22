@@ -1,9 +1,9 @@
 """CLI for the deterministic steps around Claude Code in pr-test-claude.yml.
 
-The agent's data (skills, instructions, report schema, skip rules) is in
-agent-shared/; this package is code only.
+The agent itself (prompt, skills, report schema, skip rules) is in
+.github/claude-test-agent/; this package is code only.
 
-- `prompt`: plan.json, and prompt.md (instructions plus the task) when there is
+- `prompt`: plan.json, and prompt.md (the agent's prompt plus the task) when there is
   something to test;
 - `verify`: what Claude changed on disk and a sandboxed rerun of its tests;
 - `comment`: the PR comment.
@@ -27,10 +27,7 @@ def main() -> None:
 
     prompt = commands.add_parser("prompt", help="write the plan and Claude's prompt")
     prompt.add_argument("--base", required=True, help="PR base SHA; the diff starts at the merge base")
-    prompt.add_argument(
-        "--instructions", type=Path, action="append", required=True,
-        help="instruction files, in order, before the task (repeatable)",
-    )
+    prompt.add_argument("--instructions", type=Path, required=True, help="the agent's prompt, put before the task")
 
     verify_cmd = commands.add_parser("verify", help="check Claude's changes and rerun its tests")
     verify_cmd.add_argument("--conclusion", default="", help="claude-code-action's conclusion output")

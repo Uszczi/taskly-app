@@ -30,13 +30,12 @@ ci-clean:
 ci-plan:
     mkdir -p {{out}}
     {{cli}} prompt --base {{base}} \
-      --instructions agent-shared/instructions.md \
       --instructions .github/claude-test-agent/prompt.md
     jq -r '"targets: \(.targets | length)  skipped: \(.skipped | length)", (.targets[] | "  \(.source) -> \(.test)\(if .test_exists then "" else " (new)" end)")' {{out}}/plan.json
 
 # Step 2: coverage of the changed areas before any new test.
 ci-coverage-before:
-    agent-shared/coverage.sh measure {{base}} {{out}}/coverage-before.json
+    .github/claude-test-agent/coverage.sh measure {{base}} {{out}}/coverage-before.json
     jq -c 'map_values(.total)' {{out}}/coverage-before.json
 
 # Step 3: Claude Code with CI's settings, sandbox and skills (uses your Claude Code login).
@@ -47,13 +46,13 @@ ci-claude:
     command -v bwrap socat > /dev/null || { echo "install bubblewrap and socat first"; exit 1; }
     # CI gives Claude the test skills in place of the developers' ones; put those back after.
     trap 'rm -rf .claude/skills && git checkout -q -- .claude' EXIT
-    rm -rf .claude/skills && mkdir -p .claude/skills && cp -r agent-shared/skills/. .claude/skills/
+    rm -rf .claude/skills && mkdir -p .claude/skills && cp -r .github/claude-test-agent/skills/. .claude/skills/
     # --setting-sources project: none of your user settings, hooks or permissions (CI has none).
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 claude -p "$(cat {{out}}/prompt.md)" \
       --setting-sources project \
       --settings .github/claude-test-agent/settings.json \
       --model {{model}} --max-turns 200 \
-      --json-schema "$(jq -c . agent-shared/report.schema.json)" \
+      --json-schema "$(jq -c . .github/claude-test-agent/report.schema.json)" \
       --output-format stream-json --verbose > {{out}}/claude.jsonl
     # The action's execution file: the same messages as one JSON array.
     jq -s . {{out}}/claude.jsonl > {{out}}/execution.json
@@ -74,8 +73,8 @@ ci-verify:
 
 # Step 5: coverage after Claude's tests, and the comment's coverage table.
 ci-coverage-after:
-    agent-shared/coverage.sh measure {{base}} {{out}}/coverage-after.json
-    agent-shared/coverage.sh render {{base}} {{out}}/coverage-before.json {{out}}/coverage-after.json > {{out}}/coverage.md
+    .github/claude-test-agent/coverage.sh measure {{base}} {{out}}/coverage-after.json
+    .github/claude-test-agent/coverage.sh render {{base}} {{out}}/coverage-before.json {{out}}/coverage-after.json > {{out}}/coverage.md
     cat {{out}}/coverage.md
 
 # Step 6: the report, as publish would post it (tests PR body or PR comment).

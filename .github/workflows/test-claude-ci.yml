@@ -4,9 +4,9 @@ name: Test claude-ci
 on:
   push:
     branches: [main]
-    paths: [claude-ci/**, agent-shared/**, .github/workflows/test-claude-ci.yml]
+    paths: [claude-ci/**, .github/claude-test-agent/**, .github/workflows/test-claude-ci.yml]
   pull_request:
-    paths: [claude-ci/**, agent-shared/**, .github/workflows/test-claude-ci.yml]
+    paths: [claude-ci/**, .github/claude-test-agent/**, .github/workflows/test-claude-ci.yml]
 
 permissions:
   contents: read
