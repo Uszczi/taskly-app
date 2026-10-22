@@ -1,6 +1,11 @@
 import { CalendarDays, Pencil, Trash2 } from 'lucide-react'
 import type { Todo } from '../types'
-import { formatDate, isOverdue, priorityLabels } from '../utils/todos'
+import {
+  formatDate,
+  isOverdue,
+  priorityLabels,
+  priorityTones,
+} from '../utils/todos'
 import {
   Badge,
   Card,
@@ -25,7 +30,7 @@ export function TodoItem({
 }) {
   return (
     <li>
-      <Card>
+      <Card tone={priorityTones[todo.priority]}>
         <div className="todo-row">
           <div className="todo-content stack compact">
             <Heading level={3}>{todo.title}</Heading>
