@@ -1,4 +1,7 @@
-"""The PR comment: which behaviors the new tests pin and what still needs a human.
+"""The report: which behaviors the new tests pin and what still needs a human.
+
+It is the body of the pull request that proposes the tests, or the comment on
+the source pull request when no tests are proposed.
 
 Test names come from the patch, not from Claude's report. Report text and test
 names come from a model that read the PR's code, so they are untrusted:
@@ -12,12 +15,12 @@ from pathlib import Path
 from .models import Plan, Result, Status
 
 MARKER = "<!-- taskly-test-agent:claude -->"
-# The publish job replaces this with a link to the commit it pushed.
-COMMIT_SLOT = "<!-- commit -->"
+# In the tests PR's body, the publish job replaces this with a link to the source PR.
+LINK_SLOT = "<!-- link -->"
 
 _STATUS: dict[Status, str] = {
-    "tests_failed": "❌ Generated tests fail; not committed",
-    "violation": "❌ Claude changed files that are not tests; not committed",
+    "tests_failed": "❌ Generated tests fail; no PR opened",
+    "violation": "❌ Claude changed files that are not tests; no PR opened",
     "agent_failed": "❌ Claude Code failed or gave no report",
     "nothing_to_test": "✅ No changed source file needs unit tests",
 }
@@ -27,7 +30,7 @@ _PY_TEST = re.compile(r"^(?P<sign>[+-])\s*(?:async\s+)?def\s+test_(?P<name>\w+)\
 
 
 def safe(text: str) -> str:
-    text = re.sub(r"[<>]", "", text)  # no raw HTML, no fake MARKER or COMMIT_SLOT
+    text = re.sub(r"[<>]", "", text)  # no raw HTML, no fake MARKER or LINK_SLOT
     text = text.replace("@", "@\u200b")  # no mentions of people or teams
     return text.replace("|", "\\|").replace("\n", " ")
 
@@ -86,14 +89,14 @@ def render(out: Path, run_url: str, footer: str) -> str:
         status = f"✅ {count} test{'s' if count != 1 else ''} added, passing" if count else "✅ No new tests needed"
     else:
         status = _STATUS[result["status"]]
-    lines = [MARKER, f"## 🧪 Test agent (Claude Code): {status}", "", f"[run log]({run_url}){COMMIT_SLOT}", ""]
+    lines = [MARKER, f"## 🧪 Test agent (Claude Code): {status}", "", f"[run log]({run_url}){LINK_SLOT}", ""]
 
     report = (result.get("report") if result else None) or {}
     if summary := safe(str(report.get("summary", ""))).strip():
         lines += [f"> {summary}", ""]
 
     if tests:
-        lines += ["**Now covered**" if result and result["status"] == "ok" else "**Written, not committed**", ""]
+        lines += ["**Now covered**" if result and result["status"] == "ok" else "**Written, not proposed**", ""]
         for path, names in tests.items():
             lines += [f"- `{safe(path)}`", *[f"  - {safe(name)}" for name in names]]
         lines.append("")
@@ -118,7 +121,7 @@ def render(out: Path, run_url: str, footer: str) -> str:
             if run["exit_code"] != 0:
                 what = "Frontend typecheck (`tsc --noEmit`)" if run["target"] == "typecheck" else f"{run['target']} tests"
                 attention.append(f"{what} fails when rerun without the model; see {run['target']}.log in the run artifacts.")
-        attention += [f"`{safe(p)}` is not a test file; nothing was committed." for p in result.get("violations", [])]
+        attention += [f"`{safe(p)}` is not a test file; no PR was opened." for p in result.get("violations", [])]
         attention += [safe(str(item)) for item in report.get("attention", [])]
     if attention:
         lines += ["**Needs your attention**", "", *[f"- {item}" for item in attention], ""]

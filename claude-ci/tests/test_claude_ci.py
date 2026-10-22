@@ -290,7 +290,7 @@ def test_comment_for_a_successful_run(out: Path) -> None:
     body = render(out, "https://run", "m · $0.01")
 
     assert body.startswith(f"{MARKER}\n## 🧪 Test agent (Claude Code): ✅ 3 tests added, passing\n")
-    assert "[run log](https://run)<!-- commit -->\n\n> Added tests.\n" in body
+    assert "[run log](https://run)<!-- link -->\n\n> Added tests.\n" in body
     assert "- `backend/tests/test_x.py`\n  - rejects empty title" in body
     assert body.index("**Now covered**") < body.index("**Coverage**") < body.index("**Changed files without tests**")
     assert "| `backend/app/schemas.py` | excluded from backend coverage |" in body
@@ -305,12 +305,12 @@ def test_model_text_cannot_inject_html_mentions_or_markers(out: Path) -> None:
     body = render(out, "https://run", "")
 
     assert "<b>" not in body and "@team" not in body and "@​team" in body
-    assert body.count(MARKER) == 1 and safe("<!-- commit -->") == "!-- commit --"
+    assert body.count(MARKER) == 1 and safe("<!-- link -->") == "!-- link --"
 
 
 def test_comment_for_failing_tests_and_violations(out: Path) -> None:
     write_run(out, "tests_failed", runs=[{"target": "typecheck", "exit_code": 2}])
-    assert "**Written, not committed**" in (body := render(out, "https://run", ""))
+    assert "**Written, not proposed**" in (body := render(out, "https://run", ""))
     assert "Frontend typecheck (`tsc --noEmit`) fails" in body
 
     write_run(out, "violation", violations=["backend/app/x.py"])

@@ -14,6 +14,10 @@
 # Two jobs, so model-written code never runs next to a write token: generate has
 # the model API key but only read access; publish has write access but runs no
 # code from the PR. Runs only for PRs from claude/* branches of this repo.
+#
+# Each push gets its own tests PR into the PR's branch, with tests for the
+# commits since the last finished run only: the bot's comment records the head
+# each run covered, and the next run diffs from there.
 name: PR test agent (Claude Code)
 
 on:
@@ -39,6 +43,8 @@ jobs:
       pull-requests: read # the action reads PR metadata
     outputs:
       status: ${{ steps.verify.outputs.status }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+      base: ${{ steps.base.outputs.sha }}
     steps:
       # Outside the checkout, which is the only place Claude's sandbox can write.
       - run: |
@@ -52,6 +58,25 @@ jobs:
           fetch-depth: 0 # the diff needs the merge base
           persist-credentials: false
 
+      # A run that was cancelled or failed records nothing, so the next one covers its commits too.
+      - name: Find the commits earlier runs covered
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          covered=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
+            '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- taskly-test-agent:claude -->")))
+             | .body | capture("<!-- covered: (?<sha>[0-9a-f]{40}) -->").sha' | tail -n1)
+          base=$PR_BASE
+          # Not an ancestor after a force-push or rebase: start over from the PR's base.
+          if [ -n "$covered" ] && git merge-base --is-ancestor "$covered" HEAD 2>/dev/null; then
+            base=$covered
+          fi
+          echo "sha=$(git merge-base "$base" HEAD)" | tee -a "$GITHUB_OUTPUT"
+
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.12"
@@ -64,7 +89,7 @@ jobs:
       - name: Plan
         id: plan
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           # Shared instructions first, then Claude's own; the task from the diff comes last.
           "$CI_VENV/bin/taskly-claude-ci" --out "$OUT_DIR" prompt --base "$BASE_SHA" \
@@ -107,7 +132,7 @@ jobs:
       - name: Coverage before
         if: steps.plan.outputs.has_targets == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: agent-shared/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-before.json"
 
       - name: Run Claude Code
@@ -143,7 +168,7 @@ jobs:
       - name: Coverage after
         if: always() && steps.plan.outputs.has_targets == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           agent-shared/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-after.json"
           agent-shared/coverage.sh render "$BASE_SHA" "$OUT_DIR/coverage-before.json" \
@@ -176,16 +201,17 @@ jobs:
           echo "::error::Claude Code test run: $STATUS"
           exit 1
 
-  # Writes to the repo but runs nothing from the PR: checks the patch, commits it
-  # when every test passed, and posts or updates one comment on the PR.
+  # Writes to the repo but runs nothing from the PR: checks the patch and, when
+  # every test passed, proposes it in a new PR into the PR's branch; then posts a
+  # comment on the PR (a link to that PR, or the report itself).
   publish:
     needs: generate
     if: always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      contents: write # push the generated tests
-      pull-requests: write # comment on the PR
+      contents: write # push the tests branch
+      pull-requests: write # open the tests PR, comment on the PR
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true # missing when generate failed early
@@ -196,22 +222,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: repo
           persist-credentials: false # the token is passed to `git push` only
 
-      - name: Commit generated tests
+      - name: Name the commits covered
+        if: hashFiles('out/comment.md') != ''
+        env:
+          BASE: ${{ needs.generate.outputs.base }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          range="Commits [\`${BASE:0:7}..${HEAD_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...$HEAD_SHA)"
+          # After the status heading comment.py writes on line 2.
+          awk -v range="$range" 'NR == 2 { print; print ""; print range; next } 1' out/comment.md > out/comment.tmp
+          mv out/comment.tmp out/comment.md
+
+      # One tests branch and PR per push, on the commit the tests were written for
+      # (later commits to the PR do not matter). Not under claude/, so the agent skips it.
+      - name: Open the tests PR
         if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
         working-directory: repo
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          TOKEN: ${{ github.token }}
         run: |
-          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
-            echo "> Not committed: the branch got new commits during the run; the next run covers them." >> ../out/comment.md
-            exit 0
-          fi
           # The patch comes from a job that ran model-written code: accept test files only.
           git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
             case "$path" in
@@ -226,28 +263,44 @@ jobs:
             echo "::error::patch contains a delete, rename or mode change"
             exit 1
           fi
+          branch="test-agent/pr-$PR-${HEAD_SHA:0:7}"
+          git switch -q -c "$branch"
           git apply --index ../out/tests.patch
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -q -m "test: add unit tests for changed code" -m "Generated by Claude Code (PR test agent alternative)."
-          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
-          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$HEAD_REF"
-          sha=$(git rev-parse HEAD)
-          link=" · committed in [\`${sha:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$sha)"
-          sed -i "s|<!-- commit -->|$link|" ../out/comment.md
+              commit -q -m "test: add unit tests for #$PR (${HEAD_SHA:0:7})" -m "Generated by Claude Code (PR test agent)."
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q --force origin "HEAD:refs/heads/$branch"
 
-      - name: Post or update the PR comment
+          # The full report goes in the tests PR; the comment on the PR links to it.
+          sed -i "s|<!-- link -->| · tests for #$PR|" ../out/comment.md
+          # Open already when the workflow run is rerun.
+          number=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --body-file ../out/comment.md > /dev/null
+            url=$(gh pr view "$number" --json url --jq .url)
+          else
+            url=$(gh pr create --base "$HEAD_REF" --head "$branch" \
+              --title "test: unit tests for #$PR (${HEAD_SHA:0:7})" --body-file ../out/comment.md)
+          fi
+          # The marker, the status heading and the commits, as written above; no model text.
+          { head -n 4 ../out/comment.md
+            echo; echo "Tests, their results and coverage are in $url: merge it to add them to this PR."
+          } > ../out/notice.md
+          mv ../out/notice.md ../out/comment.md
+
+      # A new comment per push. It records the head as covered when the run finished
+      # (tests proposed, or none needed), so the next push's run starts from there.
+      - name: Post the PR comment
         if: hashFiles('out/comment.md') != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          COVERED: ${{ needs.generate.outputs.status == 'ok' || needs.generate.outputs.has_targets == 'false' }}
         run: |
-          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
-            '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- taskly-test-agent:claude -->"))) | .id' \
-            | head -n1)
-          if [ -n "$id" ]; then
-            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@out/comment.md > /dev/null
-          else
-            gh api "repos/$REPO/issues/$PR/comments" -F body=@out/comment.md > /dev/null
+          if [ "$COVERED" = true ]; then
+            sed -i "1a <!-- covered: $HEAD_SHA -->" out/comment.md
           fi
+          gh api "repos/$REPO/issues/$PR/comments" -F body=@out/comment.md > /dev/null

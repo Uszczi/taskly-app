@@ -25,7 +25,7 @@ Your turns are limited, and the task already holds each file's diff.
 ### What happens after you
 
 Every file you write is final: you cannot delete or rename it. All of them are
-rerun together, with the typecheck, and if any fails, none is committed. So:
+rerun together, with the typecheck, and if any fails, none is proposed. So:
 
 - create files only at the test paths the task lists, plus the shared fixtures
   and helpers the skills call for;

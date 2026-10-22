@@ -78,7 +78,7 @@ ci-coverage-after:
     agent-shared/coverage.sh render {{base}} {{out}}/coverage-before.json {{out}}/coverage-after.json > {{out}}/coverage.md
     cat {{out}}/coverage.md
 
-# Step 6: the PR comment, as publish would post it.
+# Step 6: the report, as publish would post it (tests PR body or PR comment).
 ci-comment:
     {{cli}} comment --run-url "local run" --model {{model}} \
       $(test -f {{out}}/execution.json && echo --execution-file {{out}}/execution.json) > {{out}}/comment.md
