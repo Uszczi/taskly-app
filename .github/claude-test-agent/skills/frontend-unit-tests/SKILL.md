@@ -75,10 +75,12 @@ it('forwards edit requests', async () => {
 
 ## Running
 
-From the repository root, with test paths relative to `frontend/`, then the
-typecheck (vitest does not check types; a run passes only when both pass):
+From the repository root, with test paths relative to `frontend/` (the whole
+suite is `src`), then the typecheck (vitest does not check types; a run passes
+only when both pass):
 
 ```bash
 frontend/node_modules/.bin/vitest run --root frontend src/hooks/useNotice.test.ts
+frontend/node_modules/.bin/vitest run --root frontend src
 frontend/node_modules/.bin/tsc --noEmit -p frontend
 ```

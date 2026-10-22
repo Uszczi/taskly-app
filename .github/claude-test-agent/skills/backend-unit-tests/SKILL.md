@@ -54,8 +54,10 @@ def test_invalid_create_never_calls_repository(client, repository_mock, payload)
 
 ## Running
 
-From the repository root, with test paths relative to it:
+From the repository root, with test paths relative to it; the whole suite is
+`backend/tests`:
 
 ```bash
 backend/.venv/bin/python -m pytest -q -p no:cacheprovider backend/tests/features/todos/test_mappers.py
+backend/.venv/bin/python -m pytest -q -p no:cacheprovider backend/tests
 ```

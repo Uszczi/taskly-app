@@ -5,8 +5,9 @@ description: Decide which files a Taskly pull request changes deserve unit tests
 
 # Deciding what to test
 
-You write **unit test files only**; production code, configuration, and
-unrelated existing tests stay as they are.
+You write **unit test files only**; production code and configuration stay as
+they are. Existing tests change only where this pull request changed the
+behavior they assert.
 
 ## Scope
 
@@ -17,6 +18,15 @@ constant. Untouched code in the same file keeps its current tests.
 
 A change to a skipped file (a design-system component, a type) is tested
 through the listed file that uses it.
+
+## Existing tests
+
+Every test in an area is rerun with yours. Find the existing tests that assert
+the behavior a diff changes, in any test file (a component test that renders a
+changed mapping), and run them. One that fails because the diff changed that
+behavior on purpose gets its assertion updated to the new behavior; one that
+fails because the code is wrong stays as written and is reported as a
+production bug.
 
 ## Files to skip
 
@@ -64,6 +74,6 @@ Write a few precise *behavioral* tests rather than many shallow ones:
 ## Done
 
 Every file in the plan has exactly one `add`/`update`/`skip` decision in the
-report, every behavior in scope has a test that fails without it, and every
-test file you wrote ends either *green* (see each area's skill for how to run
-it) or reported as a production bug.
+report, every behavior in scope has a test that fails without it, and the whole
+suite of each area you wrote in ends either *green* (see each area's skill for
+how to run it) or red only for a reported production bug.

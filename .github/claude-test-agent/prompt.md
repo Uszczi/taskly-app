@@ -43,7 +43,7 @@ Your turns are limited, and the task already holds each file's diff.
 
 1. For each source file, read it and its existing test. Read further only what
    a test needs: fixtures, mocks, the types it builds.
-2. Write an area's test files, then run them together in one call (for the
+2. Write an area's test files, then run its whole suite in one call (for the
    frontend, follow with the typecheck). Fix and rerun until green.
 
 ### Large tasks
@@ -61,13 +61,14 @@ in parallel:
   back for the test files written, a decision with a reason per source file,
   the last run's result, and any production bug found.
 - Their answers go into your report. Each area's last run stays yours: once
-  every slice is back, run all of the area's test files in one call (and the
+  every slice is back, run the area's whole suite in one call (and the
   typecheck), and fix until green.
 
 ### What happens after you
 
-Every file you write is final: you cannot delete or rename it. All of them are
-rerun together, with the typecheck, and if any fails, none is proposed. So:
+Every file you write is final: you cannot delete or rename it. The whole suite
+of each area you wrote in is rerun, with the typecheck, and if any test fails,
+none is proposed. So:
 
 - create files only at the test paths the task lists, plus the shared fixtures
   and helpers the skills call for;
@@ -75,5 +76,5 @@ rerun together, with the typecheck, and if any fails, none is proposed. So:
   bug in `attention`: the PR then shows the failure instead of new tests.
 
 You are done when every source file in the task has a decision in the report,
-and each area's last run covers every file you wrote there and is green, or
-red only for a bug named in `attention`.
+and each area's last run is its whole suite and is green, or red only for a
+bug named in `attention`.
