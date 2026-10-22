@@ -3,10 +3,12 @@ name = "taskly-claude-ci"
 version = "0.1.0"
 description = "Deterministic CI steps around Claude Code: task, verification and PR comment"
 requires-python = ">=3.12"
-dependencies = []  # standard library only
+dependencies = [
+    "pydantic>=2.14.1",
+]
 
 [project.scripts]
-taskly-claude-ci = "taskly_claude_ci:main"
+taskly-claude-ci = "taskly_claude_ci.main:main"
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]

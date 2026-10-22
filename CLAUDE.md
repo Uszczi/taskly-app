@@ -5,9 +5,9 @@ workflow that writes unit tests for the code a pull request changes
 (`.github/workflows/pr-test-claude.yml`):
 
 - `.github/claude-test-agent/`: the agent itself: prompt, skills, report
-  schema, skip rules, the coverage script and Claude Code's settings.
-- `claude-ci/`: the deterministic steps around Claude (task, verification, PR
-  comment), standard library only. `uv run pytest` there runs its tests with no
+  schema, skip rules and Claude Code's settings.
+- `claude-ci/`: the deterministic steps around Claude (task, coverage,
+  verification, PR comment); pydantic is its only dependency. `uv run pytest` there runs its tests with no
   model or network.
 
 The `justfile` runs the workflow's steps locally on the checked-out branch:

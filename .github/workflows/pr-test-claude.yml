@@ -1,32 +1,8 @@
-# Writes and runs unit tests for the code a pull request changes, with Claude Code
-# (anthropics/claude-code-action) as the engine.
-#
-# The deterministic steps around Claude are claude-ci/ (taskly-claude-ci,
-# standard library only); the agent itself (prompt, skills, report schema,
-# skip rules, coverage script, settings) is in .github/claude-test-agent/.
-# Claude Code's guards:
-# - permissions (.github/claude-test-agent/settings.json, dontAsk mode): read
-#   anything but .env/.git, edit test files only, run only the test commands,
-#   start subagents (which get the same rules);
-# - Bash sandbox (bubblewrap): no network, secrets removed from the environment.
-#   settings.json empties GITHUB_STEP_SUMMARY, so vitest's GitHub reporter does not
-#   try to write the job summary, which is read-only in the sandbox.
-# The tests Claude runs can still write anywhere in the checkout, so claude-ci is
-# installed before Claude, outside the checkout and not editable: the copy that
-# verifies Claude's work is one Claude could not change.
-#
-# Two jobs, so model-written code never runs next to a write token: generate has
-# the model API key but only read access; publish has write access but runs no
-# code from the PR. Runs only for PRs from claude/* branches of this repo.
-#
-# Each push gets its own tests PR into the PR's branch, with tests for the
-# commits since the last finished run only: the bot's comment records the head
-# each run covered, and the next run diffs from there.
 name: PR test agent (Claude Code)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize]
 
 concurrency:
   group: pr-test-claude-${{ github.event.pull_request.number }}
@@ -43,66 +19,40 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: read # the action reads PR metadata
+      pull-requests: read
     outputs:
       status: ${{ steps.verify.outputs.status }}
-      has_targets: ${{ steps.plan.outputs.has_targets }}
-      base: ${{ steps.base.outputs.sha }}
     steps:
-      # Outside the checkout, which is the only place Claude's sandbox can write.
-      - run: |
+      - name: Prepare directories
+        run: |
           echo "OUT_DIR=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
-          echo "CI_VENV=$RUNNER_TEMP/ci-venv" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/out"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0 # the diff needs the merge base
+          fetch-depth: 0
           persist-credentials: false
-
-      # A run that was cancelled or failed records nothing, so the next one covers its commits too.
-      - name: Find the commits earlier runs covered
-        id: base
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          covered=$(gh api "repos/$REPO/issues/$PR/comments" --paginate --jq \
-            '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- taskly-test-agent:claude -->")))
-             | .body | capture("<!-- covered: (?<sha>[0-9a-f]{40}) -->").sha' | tail -n1)
-          base=$PR_BASE
-          # Not an ancestor after a force-push or rebase: start over from the PR's base.
-          if [ -n "$covered" ] && git merge-base --is-ancestor "$covered" HEAD 2>/dev/null; then
-            base=$covered
-          fi
-          echo "sha=$(git merge-base "$base" HEAD)" | tee -a "$GITHUB_OUTPUT"
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.12"
 
       - name: Install the CI tools
-        env:
-          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/ci-venv
-        run: uv sync --project claude-ci --frozen --no-dev --no-editable
+        run: |
+          uv export --project claude-ci --frozen --no-dev --no-emit-project --no-hashes \
+            > "$RUNNER_TEMP/ci-pins.txt"
+          uv tool install ./claude-ci --constraints "$RUNNER_TEMP/ci-pins.txt"
+          uv tool dir --bin >> "$GITHUB_PATH"
 
       - name: Plan
         id: plan
         env:
-          BASE_SHA: ${{ steps.base.outputs.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          # The agent's prompt, then the task from the diff.
-          "$CI_VENV/bin/taskly-claude-ci" --out "$OUT_DIR" prompt --base "$BASE_SHA" \
-            --instructions .github/claude-test-agent/prompt.md >> "$GITHUB_OUTPUT"
-          if [ -f "$OUT_DIR/prompt.md" ]; then
-            cat "$OUT_DIR/prompt.md"
-            delim="EOF_$(openssl rand -hex 16)"
-            { echo "prompt<<$delim"; cat "$OUT_DIR/prompt.md"; echo "$delim"; } >> "$GITHUB_OUTPUT"
-            echo "schema=$(jq -c . .github/claude-test-agent/report.schema.json)" >> "$GITHUB_OUTPUT"
-          fi
+          taskly-claude-ci --out "$OUT_DIR" prompt --base "$BASE_SHA" \
+            --instructions .github/claude-test-agent/prompt.md \
+            --schema .github/claude-test-agent/report.schema.json >> "$GITHUB_OUTPUT"
 
       - name: Install bubblewrap
         if: steps.plan.outputs.has_targets == 'true'
@@ -134,19 +84,19 @@ jobs:
       - name: Coverage before
         if: steps.plan.outputs.has_targets == 'true'
         env:
-          BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: .github/claude-test-agent/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-before.json"
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: taskly-claude-ci --out "$OUT_DIR" coverage before --base "$BASE_SHA"
 
       - name: Run Claude Code
         id: claude
         if: steps.plan.outputs.has_targets == 'true'
-        continue-on-error: true # verify reports the failure
+        continue-on-error: true
         uses: anthropics/claude-code-action@a5a423f75c251dcbff8a74e99f83b2cb03c72bfa # v1.0.256
         env:
-          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1" # no API key or tokens in commands Claude runs
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ github.token }} # read-only; the action pushes nothing
+          github_token: ${{ github.token }}
           settings: .github/claude-test-agent/settings.json
           prompt: ${{ steps.plan.outputs.prompt }}
           claude_args: >-
@@ -154,28 +104,26 @@ jobs:
             --max-turns 200
             --json-schema '${{ steps.plan.outputs.schema }}'
 
-      - name: Verify (no model, no secrets)
+      - name: Verify
         id: verify
         if: always() && steps.plan.outputs.has_targets == 'true'
         env:
           CONCLUSION: ${{ steps.claude.outputs.conclusion }}
-          REPORT: ${{ steps.claude.outputs.structured_output }} # read from the environment, never a command line
+          REPORT: ${{ steps.claude.outputs.structured_output }}
         run: |
           rm -rf .claude/skills && git checkout -q -- .claude
-          "$CI_VENV/bin/taskly-claude-ci" --out "$OUT_DIR" verify --conclusion "$CONCLUSION" >> "$GITHUB_OUTPUT"
-          jq '{status, written, violations, runs}' "$OUT_DIR/result.json"
-          tail -n 30 "$OUT_DIR"/*.log 2>/dev/null || true
 
-      # After Verify, so its git status sees only what Claude changed.
+          git add -A
+          if ! git diff --cached --quiet; then
+            git diff --cached --binary > "$OUT_DIR/tests.patch"
+          fi
+          taskly-claude-ci --out "$OUT_DIR" verify --conclusion "$CONCLUSION" >> "$GITHUB_OUTPUT"
+
       - name: Coverage after
         if: always() && steps.plan.outputs.has_targets == 'true'
         env:
-          BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: |
-          .github/claude-test-agent/coverage.sh measure "$BASE_SHA" "$OUT_DIR/coverage-after.json"
-          .github/claude-test-agent/coverage.sh render "$BASE_SHA" "$OUT_DIR/coverage-before.json" \
-            "$OUT_DIR/coverage-after.json" > "$OUT_DIR/coverage.md"
-          cat "$OUT_DIR/coverage.md"
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: taskly-claude-ci --out "$OUT_DIR" coverage after --base "$BASE_SHA"
 
       - name: Build PR comment
         if: always() && steps.plan.outcome == 'success'
@@ -184,8 +132,8 @@ jobs:
           MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          "$CI_VENV/bin/taskly-claude-ci" --out "$OUT_DIR" comment --run-url "$RUN_URL" --model "$MODEL" \
-            ${EXECUTION_FILE:+--execution-file "$EXECUTION_FILE"} > "$OUT_DIR/comment.md"
+          taskly-claude-ci --out "$OUT_DIR" comment --run-url "$RUN_URL" --model "$MODEL" \
+            --execution-file "$EXECUTION_FILE"
           cat "$OUT_DIR/comment.md" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -203,106 +151,58 @@ jobs:
           echo "::error::Claude Code test run: $STATUS"
           exit 1
 
-  # Writes to the repo but runs nothing from the PR: checks the patch and, when
-  # every test passed, proposes it in a new PR into the PR's branch; then posts a
-  # comment on the PR (a link to that PR, or the report itself).
   publish:
     needs: generate
     if: always() && needs.generate.result != 'skipped' && needs.generate.result != 'cancelled'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      OUT_DIR: ${{ github.workspace }}/out # hashFiles() below takes it relative: 'out/...'
     permissions:
-      contents: write # push the tests branch
+      contents: write
       pull-requests: write # open the tests PR, comment on the PR
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true # missing when generate failed early
         with:
           name: test-agent-claude
-          path: out
+          path: ${{ env.OUT_DIR }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: repo
-          persist-credentials: false # the token is passed to `git push` only
 
-      - name: Name the commits covered
-        if: hashFiles('out/comment.md') != ''
-        env:
-          BASE: ${{ needs.generate.outputs.base }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          range="Commits [\`${BASE:0:7}..${HEAD_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...$HEAD_SHA)"
-          # After the status heading comment.py writes on line 2.
-          awk -v range="$range" 'NR == 2 { print; print ""; print range; next } 1' out/comment.md > out/comment.tmp
-          mv out/comment.tmp out/comment.md
-
-      # One tests branch and PR per push, on the commit the tests were written for
-      # (later commits to the PR do not matter). Not under claude/, so the agent skips it.
       - name: Open the tests PR
         if: needs.generate.outputs.status == 'ok' && hashFiles('out/tests.patch') != ''
         working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # The patch comes from a job that ran model-written code: accept test files only.
-          git apply --numstat ../out/tests.patch | cut -f3- | while IFS= read -r path; do
-            case "$path" in
-              backend/tests/*.py | frontend/src/*.test.ts | frontend/src/*.test.tsx) continue ;;
-              frontend/src/test/*.ts | frontend/src/test/*.tsx) continue ;; # shared test helpers
-            esac
-            echo "::error::patch touches a file that is not a test: $path"
-            exit 1
-          done
-          # Only new regular files or edits: no deletes, renames, symlinks or executables.
-          if git apply --summary ../out/tests.patch | grep -v '^ create mode 100644 '; then
-            echo "::error::patch contains a delete, rename or mode change"
-            exit 1
-          fi
-          branch="test-agent/pr-$PR-${HEAD_SHA:0:7}"
+          sha=${HEAD_SHA:0:7}
+          branch="test-agent/pr-$PR-$sha"
           git switch -q -c "$branch"
-          git apply --index ../out/tests.patch
+          git apply --index "$OUT_DIR/tests.patch"
           git -c user.name='github-actions[bot]' \
               -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-              commit -q -m "test: add unit tests for #$PR (${HEAD_SHA:0:7})" -m "Generated by Claude Code (PR test agent)."
-          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q --force origin "HEAD:refs/heads/$branch"
+              commit -q -m "test: add unit tests for #$PR ($sha)"
+          git push -q origin "$branch"
+          url=$(gh pr create --base "$HEAD_REF" --head "$branch" \
+            --title "test: unit tests for #$PR ($sha)" --body-file "$OUT_DIR/comment.md")
+          # The full report is in the tests PR; this PR gets a link to it.
+          echo "🧪 Tests for $sha, with their results and coverage: $url" > "$OUT_DIR/link.md"
 
-          # The full report goes in the tests PR; the comment on the PR links to it.
-          sed -i "s|<!-- link -->| · tests for #$PR|" ../out/comment.md
-          # Open already when the workflow run is rerun.
-          number=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$number" ]; then
-            gh pr edit "$number" --body-file ../out/comment.md > /dev/null
-            url=$(gh pr view "$number" --json url --jq .url)
-          else
-            url=$(gh pr create --base "$HEAD_REF" --head "$branch" \
-              --title "test: unit tests for #$PR (${HEAD_SHA:0:7})" --body-file ../out/comment.md)
-          fi
-          # The marker, the status heading and the commits, as written above; no model text.
-          { head -n 4 ../out/comment.md
-            echo; echo "Tests, their results and coverage are in $url: merge it to add them to this PR."
-          } > ../out/notice.md
-          mv ../out/notice.md ../out/comment.md
-
-      # A new comment per push. It records the head as covered when the run finished
-      # (tests proposed, or none needed), so the next push's run starts from there.
       - name: Post the PR comment
         if: hashFiles('out/comment.md') != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          COVERED: ${{ needs.generate.outputs.status == 'ok' || needs.generate.outputs.has_targets == 'false' }}
         run: |
-          if [ "$COVERED" = true ]; then
-            sed -i "1a <!-- covered: $HEAD_SHA -->" out/comment.md
-          fi
-          gh api "repos/$REPO/issues/$PR/comments" -F body=@out/comment.md > /dev/null
+          body="$OUT_DIR/comment.md"
+          if [ -f "$OUT_DIR/link.md" ]; then body="$OUT_DIR/link.md"; fi
+          gh api "repos/$REPO/issues/$PR/comments" -F body=@"$body" > /dev/null

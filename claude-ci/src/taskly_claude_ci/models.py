@@ -1,83 +1,89 @@
-"""Shapes of the JSON files the commands pass to each other through the out directory.
+from typing import Literal
 
-`prompt` writes plan.json (and, with nothing to test, result.json); `verify`
-writes result.json; `comment` reads both.
-"""
-
-from typing import Literal, NotRequired, TypedDict
+from pydantic import BaseModel, RootModel
 
 Area = Literal["backend", "frontend"]
 Status = Literal["ok", "tests_failed", "violation", "agent_failed", "nothing_to_test"]
 
 
-class BackendRules(TypedDict):
+class BackendRules(BaseModel):
     root: str
     suffixes: list[str]
     skip_names: list[str]
     skip_paths: list[str]
 
 
-class FrontendRules(TypedDict):
+class FrontendRules(BaseModel):
     root: str
     suffixes: list[str]
-    skip_globs: list[str]  # fnmatch globs: `*` also matches `/`
+    skip_globs: list[str]
 
 
-class SkipRules(TypedDict):
-    """.github/claude-test-agent/skip-rules.json (its `$comment` keys are not read)."""
-
+class SkipRules(BaseModel):
     backend: BackendRules
     frontend: FrontendRules
 
 
-class Target(TypedDict):
-    """A changed source file that needs tests."""
-
+class Target(BaseModel):
     source: str
     area: Area
-    test: str  # conventional test path, existing or to be created
+    test: str
     test_exists: bool
     diff: str
 
 
-class Skipped(TypedDict):
-    """A changed file that needs no tests."""
-
+class Skipped(BaseModel):
     path: str
     reason: str
-    excluded: bool  # source code excluded from coverage, not just a non-source file
+    excluded: bool
 
 
-class Plan(TypedDict):
-    targets: list[Target]
-    skipped: list[Skipped]
-    changed_tests: list[str]
+class Plan(BaseModel):
+    targets: list[Target] = []
+    skipped: list[Skipped] = []
+    changed_tests: list[str] = []
 
 
-class Decision(TypedDict):
+class Decision(BaseModel):
     path: str
     action: Literal["add", "update", "skip"]
     reason: str
 
 
-class Report(TypedDict, total=False):
-    """Claude's structured output (.github/claude-test-agent/report.schema.json). Model text: untrusted."""
-
+class Report(BaseModel):
     summary: str
     decisions: list[Decision]
     attention: list[str]
     skills_used: list[str]
 
 
-class Run(TypedDict):
+class Run(BaseModel):
     target: Literal["backend", "frontend", "typecheck"]
     exit_code: int
 
 
-class Result(TypedDict):
+class AreaCoverage(BaseModel):
+    total: float
+    files: dict[str, float]
+
+
+class Coverage(BaseModel):
+    backend: AreaCoverage | None = None
+    frontend: AreaCoverage | None = None
+
+
+class Result(BaseModel):
     status: Status
-    # Absent when `prompt` found nothing to test and Claude never ran.
-    written: NotRequired[list[str]]
-    violations: NotRequired[list[str]]
-    runs: NotRequired[list[Run]]
-    report: NotRequired[Report | None]
+    written: list[str] = []
+    violations: list[str] = []
+    runs: list[Run] = []
+    report: Report | None = None
+
+
+class ExecutionEntry(BaseModel):
+    type: str = ""
+    total_cost_usd: float | None = None
+    num_turns: int | None = None
+
+
+Execution = RootModel[list[ExecutionEntry]]

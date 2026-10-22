@@ -1,89 +1,69 @@
-# Run the Claude Code test workflow (.github/workflows/pr-test-claude.yml) locally,
-# step by step or all at once, on the branch checked out here.
-#
-#   just ci            # every step, against main
-#   just ci-plan       # one step; see `just --list`
-#
-# Needs: uv, jq, claude (logged in), bubblewrap and socat for the sandboxes,
-# backend/.venv and frontend/node_modules installed.
+# Runs the steps of .github/workflows/pr-test-claude.yml locally, on the branch checked out here.
+# Needs uv, jq, bubblewrap, socat and claude (logged in); `just ci-setup` installs the rest.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+set quiet
 
-# Outside the checkout, like $RUNNER_TEMP in CI: verify treats any new file in it as a violation.
 out := env("CI_OUT", "/tmp/taskly-claude-ci")
 base := env("CI_BASE", "main")
 model := env("CLAUDE_MODEL", "claude-haiku-5-5")
 cli := "uv run -q --project claude-ci taskly-claude-ci --out " + out
 
-# Every step, as the workflow runs them.
+# Every step, as the workflow runs them
 ci: ci-clean ci-plan ci-coverage-before ci-claude ci-verify ci-coverage-after ci-comment
 
-# claude-ci's own tests and type check (no model, no network).
-ci-test:
-    cd claude-ci && uv run pytest -q && uvx mypy --strict src
+ci-setup:
+    uv venv backend/.venv --python 3.12 --allow-existing
+    uv pip install --python backend/.venv -r backend/requirements.txt
+    npm ci --prefix frontend
 
-# Start over: remove the out directory.
+# claude-ci's own tests and type check
+ci-test:
+    cd claude-ci && uv run pytest -q && uv run --with mypy mypy --strict src
+
 ci-clean:
     rm -rf {{out}}
 
-# Step 1: plan.json and Claude's prompt.md for the changes since `base`.
 ci-plan:
     mkdir -p {{out}}
     {{cli}} prompt --base {{base}} \
-      --instructions .github/claude-test-agent/prompt.md
-    jq -r '"targets: \(.targets | length)  skipped: \(.skipped | length)", (.targets[] | "  \(.source) -> \(.test)\(if .test_exists then "" else " (new)" end)")' {{out}}/plan.json
+      --instructions .github/claude-test-agent/prompt.md \
+      --schema .github/claude-test-agent/report.schema.json | head -n 1
+    jq -r '.targets[] | "\(.source) -> \(.test)\(if .test_exists then "" else " (new)" end)"' {{out}}/plan.json
 
-# Step 2: coverage of the changed areas before any new test.
 ci-coverage-before:
-    .github/claude-test-agent/coverage.sh measure {{base}} {{out}}/coverage-before.json
-    jq -c 'map_values(.total)' {{out}}/coverage-before.json
+    {{cli}} coverage before --base {{base}}
 
-# Step 3: Claude Code with CI's settings, sandbox and skills (uses your Claude Code login).
 ci-claude:
     #!/usr/bin/env bash
     set -euo pipefail
-    test -f {{out}}/prompt.md || { echo "nothing to test (see plan.json)"; exit 0; }
-    command -v bwrap socat > /dev/null || { echo "install bubblewrap and socat first"; exit 1; }
-    # CI gives Claude the test skills in place of the developers' ones; put those back after.
+    test -f {{out}}/prompt.md || { echo "nothing to test"; exit 0; }
     trap 'rm -rf .claude/skills && git checkout -q -- .claude' EXIT
-    rm -rf .claude/skills && mkdir -p .claude/skills && cp -r .github/claude-test-agent/skills/. .claude/skills/
-    # --setting-sources project: none of your user settings, hooks or permissions (CI has none).
+    rm -rf .claude/skills && cp -r .github/claude-test-agent/skills .claude/skills
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 claude -p "$(cat {{out}}/prompt.md)" \
       --setting-sources project \
       --settings .github/claude-test-agent/settings.json \
       --model {{model}} --max-turns 200 \
       --json-schema "$(jq -c . .github/claude-test-agent/report.schema.json)" \
       --output-format stream-json --verbose > {{out}}/claude.jsonl
-    # The action's execution file: the same messages as one JSON array.
     jq -s . {{out}}/claude.jsonl > {{out}}/execution.json
-    jq -c 'select(.type == "result") | {subtype, is_error, num_turns, total_cost_usd}' {{out}}/claude.jsonl
 
-# Step 4: check what Claude changed and rerun its tests; writes result.json and tests.patch.
 ci-verify:
     #!/usr/bin/env bash
     set -euo pipefail
-    test -f {{out}}/claude.jsonl || { echo "run ci-claude first"; exit 1; }
     result=$(jq -c 'select(.type == "result")' {{out}}/claude.jsonl | tail -n 1)
     conclusion=$(jq -r 'if .is_error then "failure" else "success" end' <<< "$result")
-    # Like the workflow, the report reaches verify through the environment only.
-    REPORT=$(jq -c '.structured_output // empty' <<< "$result") {{cli}} verify --conclusion "$conclusion"
-    jq '{status, written, violations, runs}' {{out}}/result.json
-    # verify stages the written tests to build the patch; leave them unstaged here.
+    git add -A
+    if ! git diff --cached --quiet; then git diff --cached --binary > {{out}}/tests.patch; fi
     git reset -q
+    REPORT=$(jq -c '.structured_output // empty' <<< "$result") {{cli}} verify --conclusion "$conclusion"
 
-# Step 5: coverage after Claude's tests, and the comment's coverage table.
 ci-coverage-after:
-    .github/claude-test-agent/coverage.sh measure {{base}} {{out}}/coverage-after.json
-    .github/claude-test-agent/coverage.sh render {{base}} {{out}}/coverage-before.json {{out}}/coverage-after.json > {{out}}/coverage.md
-    cat {{out}}/coverage.md
+    {{cli}} coverage after --base {{base}}
 
-# Step 6: the report, as publish would post it (tests PR body or PR comment).
 ci-comment:
-    {{cli}} comment --run-url "local run" --model {{model}} \
-      $(test -f {{out}}/execution.json && echo --execution-file {{out}}/execution.json) > {{out}}/comment.md
-    cat {{out}}/comment.md
+    {{cli}} comment --run-url "local run" --model {{model}} --execution-file {{out}}/execution.json
 
-# Throw away what Claude wrote in this checkout (tracked changes and new test files).
 ci-reset:
     git checkout -q -- backend/tests frontend/src
     git clean -fdq -- backend/tests frontend/src
