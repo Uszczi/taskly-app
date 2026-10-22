@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTodos } from './todos'
+import { priorityTones, selectTodos } from './todos'
 import type { Todo } from '../types'
 
 const base: Todo = {
@@ -12,6 +12,16 @@ const base: Todo = {
   created_at: '2026-10-01T12:00:00Z',
   updated_at: '2026-10-01T12:00:00Z',
 }
+
+describe('priorityTones', () => {
+  it('maps low, medium and high priorities to neutral, info and warning tones', () => {
+    expect(priorityTones).toEqual({
+      low: 'neutral',
+      medium: 'info',
+      high: 'warning',
+    })
+  })
+})
 
 describe('selectTodos', () => {
   it('combines status with a case-insensitive search in the description', () => {
