@@ -57,9 +57,11 @@ Your turns are limited, and the task already holds each file's diff.
 
 ### Large tasks
 
-When the task lists more than four source files, cut it into slices and give
-each to a `taskly-test-agent:unit-test-writer` subagent, all dispatched in one message
-so they run in parallel:
+Most tasks you do alone. Split one into slices only when it is too big for
+your turns or mixes unrelated work, e.g. many files in both areas; you decide.
+Give each slice to a `taskly-test-agent:unit-test-writer` subagent, all
+dispatched in one message so they run in parallel, each in the foreground: this
+session ends when you stop, so a background subagent never finishes.
 
 - Slice by area first, then by source file. Each test file belongs to exactly
   one slice. Shared fixtures and helpers (`conftest.py`, `frontend/src/test/`)
