@@ -91,9 +91,53 @@ Steps 6-12 run only when a changed file needs tests:
 - Parallel run of different models.
 - Agentic review of automatic generated PR.
 
-## an example run, including the agent's decisions, the skills used, and the test execution results, your assumptions,
+## Example run
 
-## The solution's limitations,
+PR [#11](https://github.com/Uszczi/taskly-app/pull/11) adds a task summary and clearing of completed tasks: 15 changed files in the backend and frontend.
+The workflow ran on the same commit (`7653795`) twice, once per model, and each run opened its own tests PR:
+
+| | Haiku | Sonnet |
+|---|---|---|
+| Tests PR | [#13](https://github.com/Uszczi/taskly-app/pull/13) | [#12](https://github.com/Uszczi/taskly-app/pull/12) |
+| Run | [39939245900](https://github.com/Uszczi/taskly-app/actions/runs/39939245900) | [39939317464](https://github.com/Uszczi/taskly-app/actions/runs/39939317464) |
+| Status | ✅ ok | ✅ ok |
+| Tests added | 43 in 14 files | 24 in 13 files |
+| Rerun by verify | backend 34 passed, frontend 49 passed, typecheck clean | backend 28 passed, frontend 37 passed, typecheck clean |
+| Backend coverage | 43.9% → 49.2% | 43.9% → 49.7% |
+| Frontend coverage | 39.8% → 66.3% | 39.8% → 66.3% |
+| Cost, turns | $0.037, 62 turns | $0.31, 42 turns |
+| Denied tool calls | 2 | 1 |
+
+**Agent's decisions** (the same in both runs): 12 files in scope.
+- `add` for the new files: `stats.py`, `TodoSummary.tsx` and the five hooks.
+- `update` for the files that already had tests: `repository.py`, `router.py`, `TodosPage.tsx`, `api/todos.ts`, `utils/todos.ts`.
+- Not tested, excluded from coverage by the plan: `schemas.py`, `queryKeys.ts`, `types.ts`.
+- Shared test code was written once: a query client helper in `frontend/src/test/` (both runs) and a stats fixture (Haiku).
+
+**Skills used**: `test-scope`, `backend-unit-tests` and `frontend-unit-tests` in both runs.
+
+**Subagents**: none; the agent did the 12 files alone in both runs.
+
+**Denied tool calls**: the agent tried to write files through Bash (`cat > …`, `cd … && for …`). The permissions refused them, and the agent used Edit/Write instead.
+
+**Comparison**: both models covered every changed file, reached the same coverage and passed verification. Haiku wrote more, narrower tests and listed what it could not pin (e.g. the real database rowcount, the `date.today()` default) under *Needs your attention*; Sonnet wrote fewer, broader tests at about 8× the cost.
+
+**Test style**: the generated tests follow the existing ones: plain `test_…` functions and the shared fixtures in the backend; `it(...)` blocks, `todoFixture`, the design-system mock, `userEvent` and role queries in the frontend; no `any`. Two small differences showed up, and the skills were updated from them:
+- Haiku named backend tests after the function (`test_compute_stats_…`) instead of the behavior; `backend-unit-tests` now says the name is the behavior.
+- Both built the same stats object inline in several files (Haiku added a fixture but did not use it everywhere); `frontend-unit-tests` now says an object several tests build gets one fixture in `src/test/`.
+
+
+## Assumptions
+- PR authors are trusted, the workflow runs only for branches of this repository.
+- A human reviews every tests PR and decides whether to merge it, nothing is merged automatically.
+- The existing test suites pass on the PR's base, since verify reruns the whole suite of each area the agent wrote tests in.
+- Unit tests only: `backend/app` with pytest, `frontend/src` with vitest, following the repository's layout (backend tests mirror the source path under `backend/tests/` with a `test_` prefix, frontend tests sit next to the source).
+- Files that need no tests are the ones excluded from coverage (`backend/pyproject.toml`, `frontend/vite.config.ts`); `skip-rules.json` mirrors them.
+- Tests run offline: everything they would reach over the network is mocked.
+- CI runs on GitHub-hosted Ubuntu 24.04 runners, where bubblewrap can be installed.
+
+## The solution's limitations
+- Its bounded to Claude.
 - Verify step after test generation requires all tests to pass even ones that were failing before.
 - Agent runs in sandbox without any access to internet or external documentation.
 - PRs need to be closed by hand if not merged, each change to branch might generate new PR when only last one is probably valid.
@@ -102,3 +146,5 @@ Steps 6-12 run only when a changed file needs tests:
 - Price and time grow with PR size and are limited only by amount of agent turns and timeout.
 - Running workflow requires bubblewrap for sandboxed environment (Doesn't work on macOS).
 - Duplication of test commands definition: `settings.json`, both test skills, `verify.py` and `coverage.py`.
+
+## Changes before production
