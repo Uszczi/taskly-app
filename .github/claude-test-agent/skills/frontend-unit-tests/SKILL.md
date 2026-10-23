@@ -19,6 +19,9 @@ description: Conventions for writing Vitest + React Testing Library unit tests f
   there instead of repeating it, and reuse what is already there.
 - `src/test/todoFixture.ts` exports `todoFixture: Todo`. Spread and override it
   (`{ ...todoFixture, completed: true }`) instead of building todos by hand.
+- Any other object several tests build (e.g. a `TodoStats`) gets the same
+  treatment: one fixture in `src/test/<name>Fixture.ts`, spread and overridden
+  in every test that needs it, never rebuilt inline.
 - Design-system components are mocked with their own module. Every component
   test that renders design-system UI starts with (path relative to the test):
   `vi.mock('../../../design-system', () => import('../../../design-system/mocks'))`

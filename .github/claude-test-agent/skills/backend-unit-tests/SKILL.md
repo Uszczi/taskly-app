@@ -35,7 +35,9 @@ existing fixtures working: every backend test depends on them.
 
 ## Style
 
-- Plain functions named `test_<behavior>`; no test classes.
+- Plain functions named `test_<behavior>`; no test classes. The name is the
+  behavior, not the function under test: `test_completion_rate_is_rounded_to_two_decimals`,
+  not `test_compute_stats_rounds_completion_rate`.
 - Parametrize input variations with `@pytest.mark.parametrize`.
 - Assert both the result and the interaction, e.g. status code, JSON body, and
   `repository_mock.create.assert_called_once_with(...)` or `assert_not_called()`.
