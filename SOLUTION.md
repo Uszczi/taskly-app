@@ -50,7 +50,6 @@ Both runs loaded all three skills and made the same decisions: `add` for 7 new f
 - Every test in a changed area must pass, including tests that were already failing.
 - Every commit can open a new tests PR, and old ones need closing by hand.
 - No checks run on the tests PR itself.
-- The existing app was not backfilled with tests; the agent only covers PR changes.
 
 ## Before production
 - Open the tests PR with a GitHub App token, so checks run on it.
