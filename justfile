@@ -37,6 +37,9 @@ ci-claude:
     #!/usr/bin/env bash
     set -euo pipefail
     test -f {{out}}/prompt.md || { echo "nothing to test"; exit 0; }
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "commit or stash your changes first: verify must see only what Claude writes"; exit 1
+    fi
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 claude -p "$(cat {{out}}/prompt.md)" \
       --setting-sources project \
       --plugin-dir .github/claude-test-agent \
@@ -63,6 +66,11 @@ ci-coverage-after:
 ci-comment:
     {{cli}} comment --run-url "local run" --model {{model}} --execution-file {{out}}/execution.json
 
+[confirm("Delete the test files Claude wrote (listed in result.json)?")]
 ci-reset:
-    git checkout -q -- backend/tests frontend/src
-    git clean -fdq -- backend/tests frontend/src
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jq -r '.written[]' {{out}}/result.json | while IFS= read -r path; do
+      if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f -- "$path"; fi
+      echo "reset $path"
+    done
