@@ -2,10 +2,13 @@ name: PR test agent (Claude Code)
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, labeled]
 
 concurrency:
-  group: pr-test-claude-${{ github.event.pull_request.number }}
+  group: >-
+    pr-test-claude-${{ github.event.pull_request.number }}-${{
+      (github.event.action == 'labeled' && github.event.label.name != 'sonnet') && github.run_id ||
+      contains(github.event.pull_request.labels.*.name, 'sonnet') && 'sonnet' || 'default' }}
   cancel-in-progress: true
 
 permissions: {}
@@ -13,20 +16,26 @@ permissions: {}
 jobs:
   generate:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'sonnet')
     runs-on: ubuntu-24.04
     environment: CI
+    env:
+      MODEL: ${{ contains(github.event.pull_request.labels.*.name, 'sonnet') && 'claude-sonnet-5-5' || vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
     timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
     outputs:
       status: ${{ steps.verify.outputs.status }}
+      model: ${{ steps.prepare.outputs.model }}
     steps:
       - name: Prepare directories
+        id: prepare
         run: |
           echo "OUT_DIR=$RUNNER_TEMP/out" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/out"
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,7 +106,7 @@ jobs:
           claude_args: >-
             --plugin-dir .github/claude-test-agent
             --agent taskly-test-agent:unit-test-writer
-            --model ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
+            --model ${{ env.MODEL }}
             --max-turns 200
             --json-schema '${{ steps.plan.outputs.schema }}'
 
@@ -124,7 +133,6 @@ jobs:
         if: always() && steps.plan.outcome == 'success'
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-          MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -f "$EXECUTION_FILE" ]; then cp "$EXECUTION_FILE" "$OUT_DIR/execution.json"; fi
@@ -178,9 +186,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MODEL: ${{ needs.generate.outputs.model }}
         run: |
           sha=${HEAD_SHA:0:7}
-          branch="test-agent/pr-$PR-$sha"
+          branch="test-agent/pr-$PR-$sha-$MODEL"
           git switch -q -c "$branch"
           git apply --index "$OUT_DIR/tests.patch"
           git -c user.name='github-actions[bot]' \
@@ -188,9 +197,9 @@ jobs:
               commit -q -m "test: add unit tests for #$PR ($sha)"
           git push -q origin "$branch"
           url=$(gh pr create --base "$HEAD_REF" --head "$branch" \
-            --title "test: unit tests for #$PR ($sha)" --body-file "$OUT_DIR/comment.md")
+            --title "test: unit tests for #$PR ($sha, $MODEL)" --body-file "$OUT_DIR/comment.md")
           # The full report is in the tests PR; this PR gets a link to it.
-          echo "🧪 Tests for $sha, with their results and coverage: $url" > "$OUT_DIR/link.md"
+          echo "🧪 Tests for $sha by $MODEL, with their results and coverage: $url" > "$OUT_DIR/link.md"
 
       - name: Post the PR comment
         if: hashFiles('out/comment.md') != ''

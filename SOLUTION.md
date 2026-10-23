@@ -30,6 +30,7 @@
   `Settings -> Environments`
 - Optionally set repository variable `CLAUDE_MODEL` (default `claude-haiku-5-5`).
   `Settings -> Secrets and variables -> Actions -> Variables`
+- To run a PR on Sonnet instead, add the label `sonnet` to it (create it once: `gh label create sonnet`). Adding the label starts a run; the tests PR's branch and title name the model, so both models can be compared on the same commit.
 - Allow GitHub Actions to create and approve pull requests
   `Settings -> Actions -> General`
 - Workflow runs automatically on every pull request from a branch of this repository (not from forks).
