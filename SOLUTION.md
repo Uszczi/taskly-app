@@ -87,44 +87,39 @@ Steps 6 to 12 run only when a changed file needs tests.
 19. Post a comment on the source PR
 
 
-## What to extend
-- Run different models in parallel.
-- Add an agent that reviews the generated tests PR.
-
 ## Example run
 
 PR [#11](https://github.com/Uszczi/taskly-app/pull/11) adds a task summary and clearing of completed tasks, with 15 changed files in the backend and frontend.
-The workflow ran twice on the same commit (`7653795`), once per model, and each run opened its own tests PR.
+The workflow ran on it once per model, and each run opened its own tests PR.
 
 | | Haiku | Sonnet |
 |---|---|---|
-| Tests PR | [#13](https://github.com/Uszczi/taskly-app/pull/13) | [#12](https://github.com/Uszczi/taskly-app/pull/12) |
-| Run | [39939245900](https://github.com/Uszczi/taskly-app/actions/runs/39939245900) | [39939317464](https://github.com/Uszczi/taskly-app/actions/runs/39939317464) |
+| Tests PR | [#15](https://github.com/Uszczi/taskly-app/pull/15) | [#14](https://github.com/Uszczi/taskly-app/pull/14) |
+| Run | [39943175921](https://github.com/Uszczi/taskly-app/actions/runs/39943175921) | [39942212032](https://github.com/Uszczi/taskly-app/actions/runs/39942212032) |
+| Commit of #11 | `a945f7f` | `90cc090` |
 | Status | ok | ok |
-| Tests added | 43 in 14 files | 24 in 13 files |
-| Rerun by verify | backend 34 passed, frontend 49 passed, typecheck clean | backend 28 passed, frontend 37 passed, typecheck clean |
-| Backend coverage | 43.9% to 49.2% | 43.9% to 49.7% |
+| Tests added | 33 in 14 files | 26 in 14 files |
+| Rerun by verify | backend 34 passed, frontend 41 passed, typecheck clean | backend 28 passed, frontend 37 passed, typecheck clean |
+| Backend coverage | 43.9% to 49.2% | 43.9% to 49.2% |
 | Frontend coverage | 39.8% to 66.3% | 39.8% to 66.3% |
-| Cost, turns | $0.037, 62 turns | $0.31, 42 turns |
-| Denied tool calls | 2 | 1 |
+| Cost, turns | $0.046, 62 turns | $0.32, 42 turns |
+| Denied tool calls | 5 | 1 |
 
 **Agent's decisions.** Both runs made the same decisions for the 12 files in scope.
 - `add` for the new files `stats.py`, `TodoSummary.tsx` and the five hooks.
 - `update` for the files that already had tests: `repository.py`, `router.py`, `TodosPage.tsx`, `api/todos.ts` and `utils/todos.ts`.
 - No tests for `schemas.py`, `queryKeys.ts` and `types.ts`, which the plan skipped because coverage excludes them.
-- One copy of shared test code: a query client helper in `frontend/src/test/` in both runs, and a stats fixture in the Haiku run.
+- One copy of shared test code: a query client helper (`frontend/src/test/queryClient.tsx`) and a stats fixture (`frontend/src/test/statsFixture.ts`).
 
-**Skills used.** Both runs loaded `test-scope`, `backend-unit-tests` and `frontend-unit-tests`.
+**Skills used.** Both runs loaded `test-scope`, `backend-unit-tests` and `frontend-unit-tests`. The Skill tool calls in the agent's transcript (`execution.json`) confirm it, not only the agent's report.
 
 **Subagents.** Neither run used subagents; the agent did all 12 files itself.
 
-**Denied tool calls.** The agent tried to write files through Bash (`cat > ...`, `cd ... && for ...`). The permissions refused those calls, and the agent used Edit and Write instead.
+**Denied tool calls.** Sonnet tried to append to a test file through Bash (`tee -a ...`). The permissions refused the call, and the agent used Edit instead. Haiku had five Write and Edit calls on test files refused (`queryClient.tsx`, `statsFixture.ts`, `test_stats.py`, `api/todos.test.ts`), yet those files are in the tests PR, so later calls succeeded. The transcript does not show why the first calls were refused.
 
-**Comparison.** Both models covered every changed file, reached the same coverage and passed verification. Haiku wrote more, narrower tests and listed under *Needs your attention* what it could not pin, such as the rowcount on a real database and the `date.today()` default. Sonnet wrote fewer, broader tests at about 8 times the cost.
+**Comparison of the models.** Both models covered every changed file, reached the same coverage and passed verification. Haiku wrote more, narrower tests and listed under *Needs your attention* what it could not pin, such as the real `date.today()` wiring and the order of `cancelQueries` before the cache update. Sonnet wrote fewer, broader tests at about 7 times the cost.
 
-**Test style.** The generated tests follow the existing ones. The backend tests are plain `test_...` functions that use the shared fixtures. The frontend tests use `it(...)` blocks, `todoFixture`, the design-system mock, `userEvent` and role queries, and no `any`. Two small differences came up, and I updated the skills because of them.
-- Haiku named backend tests after the function (`test_compute_stats_...`) instead of the behavior. `backend-unit-tests` now says the name is the behavior.
-- Both runs built the same stats object inline in several files, and Haiku added a fixture but did not use it everywhere. `frontend-unit-tests` now says that an object several tests build gets one fixture in `src/test/`.
+**Test style.** The generated tests follow the existing ones. The backend tests are plain functions named after the behavior (e.g. `test_completion_rate_is_rounded_to_two_decimals`) that use the shared fixtures. The frontend tests use `it(...)` blocks, `todoFixture`, the design-system mock, `userEvent` and role queries, and no `any`. Every stats object in the tests spreads the shared fixture (`{ ...statsFixture, completion_rate: 0 }`) instead of building one inline.
 
 
 ## Assumptions
@@ -147,4 +142,21 @@ The workflow ran twice on the same commit (`7653795`), once per model, and each 
 - The workflow needs bubblewrap for the sandbox, so it does not run on macOS.
 - The test commands are defined in several places: `settings.json`, both test skills, `verify.py` and `coverage.py`.
 
-## Changes before production
+## What to do before production
+- Open the tests PR with a GitHub App token instead of the Actions token. Pull requests opened with the Actions token start no workflows.
+- Run the app's own test suites (pytest, vitest and the typecheck) on every PR in a separate workflow, so a red suite is visible without the agent.
+- Keep one tests PR per source PR and update it on every push, closing the ones a new push replaces. Update one comment on the source PR instead of adding a new one per push.
+- Skip draft PRs and PRs from bots such as Dependabot, which have no access to the API key and always end as `agent_failed`.
+- Set a budget per run: a cost cap, and a size limit above which the workflow skips the agent and says why.
+- Pin the Claude Code version the action installs, so a CLI update cannot change the agent's behavior between two runs.
+- Escape the PR's file names in the report the same way as model text.
+- Check that the report has a decision for every file in the plan, and fail the run when one is missing.
+- Track cost, turns and denied tool calls per run, to see when the model or a prompt change makes runs worse.
+
+## What to do next
+- Run the agent once over all source files of the existing app, not only over a PR's diff, to add the tests the app still lacks.
+- Read the skills the agent loaded from its transcript instead of its report, and show the decisions and skills in the PR comment.
+- Run different models in parallel and compare their tests in one comment.
+- Add an agent that reviews the generated tests PR.
+- Give each push only the commits since the last run, so a new tests PR does not repeat the previous one.
+- Define the test commands in one place and generate `settings.json`, the skills' run commands and claude-ci's commands from it.
