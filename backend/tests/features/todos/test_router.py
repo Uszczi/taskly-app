@@ -1,6 +1,6 @@
 import pytest
 
-from app.features.todos.schemas import TodoCreate
+from app.features.todos.schemas import Todo, TodoCreate
 
 
 def test_list_returns_tasks_from_repository(client, repository_mock, todo):
@@ -19,6 +19,47 @@ def test_create_trims_input_and_returns_created_task(client, repository_mock, to
     repository_mock.create.assert_called_once_with(
         TodoCreate(title="Plan the sprint", priority="high")
     )
+
+
+def test_stats_summarizes_tasks_as_of_today(client, repository_mock, todo_values):
+    from datetime import date
+
+    from app.features.todos.router import get_today
+
+    client.app.dependency_overrides[get_today] = lambda: date(2026, 10, 10)
+    repository_mock.list.return_value = [
+        Todo.model_validate({**todo_values, "id": 1, "due_date": "2026-10-09"}),
+        Todo.model_validate({**todo_values, "id": 2, "due_date": "2026-10-10"}),
+        Todo.model_validate({**todo_values, "id": 3, "completed": True}),
+    ]
+    response = client.get("/api/todos/stats")
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 3,
+        "completed": 1,
+        "active": 2,
+        "overdue": 1,
+        "due_today": 1,
+        "active_by_priority": {"low": 0, "medium": 0, "high": 2},
+        "completion_rate": 0.33,
+    }
+
+
+def test_clear_completed_returns_deleted_count(client, repository_mock):
+    repository_mock.delete_completed.return_value = 2
+    response = client.delete("/api/todos/completed")
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 2}
+    repository_mock.delete_completed.assert_called_once_with()
+    repository_mock.get.assert_not_called()
+
+
+def test_get_today_returns_current_date():
+    from datetime import date
+
+    from app.features.todos.router import get_today
+
+    assert get_today() == date.today()
 
 
 @pytest.mark.parametrize("payload", [

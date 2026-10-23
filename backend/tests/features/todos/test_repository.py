@@ -19,6 +19,17 @@ def test_list_maps_models_and_orders_tasks_newest_first(model_factory, todo_valu
     assert "ORDER BY todos.created_at DESC, todos.id DESC" in compiled
 
 
+def test_delete_completed_deletes_only_completed_and_returns_count():
+    session = Mock(spec=Session)
+    session.execute.return_value.rowcount = 3
+    assert TodoRepository(session).delete_completed() == 3
+    statement = session.execute.call_args.args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert compiled.startswith("DELETE FROM todos")
+    assert "todos.completed IS true" in compiled
+    session.commit.assert_called_once_with()
+
+
 def test_get_returns_none_for_missing_task():
     session = Mock(spec=Session)
     session.get.return_value = None
