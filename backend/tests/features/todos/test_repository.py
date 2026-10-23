@@ -24,3 +24,20 @@ def test_get_returns_none_for_missing_task():
     session.get.return_value = None
     assert TodoRepository(session).get(404) is None
     session.get.assert_called_once_with(TodoRecord, 404)
+
+
+def test_delete_completed_removes_only_completed_tasks_and_returns_count():
+    session = Mock(spec=Session)
+    session.execute.return_value = Mock(rowcount=3)
+    assert TodoRepository(session).delete_completed() == 3
+    statement = session.execute.call_args.args[0]
+    compiled = str(statement.compile(dialect=postgresql.dialect()))
+    assert "DELETE FROM todos WHERE todos.completed IS true" in compiled
+    session.commit.assert_called_once_with()
+
+
+def test_delete_completed_returns_zero_and_still_commits_when_nothing_is_completed():
+    session = Mock(spec=Session)
+    session.execute.return_value = Mock(rowcount=0)
+    assert TodoRepository(session).delete_completed() == 0
+    session.commit.assert_called_once_with()
