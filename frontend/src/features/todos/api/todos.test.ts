@@ -13,6 +13,19 @@ it('passes the abort signal when fetching tasks', async () => {
   expect(request).toHaveBeenCalledWith('/todos', { signal })
 })
 
+it('passes the abort signal when fetching stats', async () => {
+  const signal = new AbortController().signal
+  vi.mocked(request).mockResolvedValue({})
+  await todosApi.stats(signal)
+  expect(request).toHaveBeenCalledWith('/todos/stats', { signal })
+})
+
+it('clears completed tasks with a DELETE to the completed path', async () => {
+  vi.mocked(request).mockResolvedValue({ deleted: 2 })
+  await expect(todosApi.clearCompleted()).resolves.toEqual({ deleted: 2 })
+  expect(request).toHaveBeenCalledWith('/todos/completed', { method: 'DELETE' })
+})
+
 it('sends only writable task fields on creation', async () => {
   vi.mocked(request).mockResolvedValue(todoFixture)
   await expect(todosApi.create(todoFixture)).resolves.toEqual(todoFixture)
