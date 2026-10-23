@@ -1,6 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { selectTodos } from './todos'
+import { describeDeadlines, describeProgress, selectTodos } from './todos'
+import { statsFixture } from '../../../test/statsFixture'
 import type { Todo } from '../types'
+
+describe('describeProgress', () => {
+  it('describes an empty list, a finished list and partial progress', () => {
+    expect(describeProgress({ ...statsFixture, total: 0, active: 0 })).toBe(
+      'No tasks yet',
+    )
+    expect(
+      describeProgress({ ...statsFixture, total: 3, completed: 3, active: 0 }),
+    ).toBe('All 3 tasks done')
+    expect(describeProgress({ ...statsFixture, completion_rate: 0.33 })).toBe(
+      '1 of 4 done (33%)',
+    )
+  })
+})
+
+describe('describeDeadlines', () => {
+  it('joins overdue and due-today counts, skipping zeros', () => {
+    expect(describeDeadlines(statsFixture)).toBeNull()
+    expect(describeDeadlines({ ...statsFixture, overdue: 2 })).toBe('2 overdue')
+    expect(describeDeadlines({ ...statsFixture, due_today: 1 })).toBe(
+      '1 due today',
+    )
+    expect(
+      describeDeadlines({ ...statsFixture, overdue: 2, due_today: 1 }),
+    ).toBe('2 overdue · 1 due today')
+  })
+})
 
 const base: Todo = {
   id: 1,
