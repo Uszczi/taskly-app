@@ -1,150 +1,150 @@
 # SOLUTION.md
 
-## Technical Decisions and Rationale
-- Workflows try to be simple and don't hold logic. It's hard to test them locally.
-- For complex behaviour there is a small Python CLI.
-- As little code as possible so there is less to maintain and fewer possible bugs.
-- The agent's commands and the verification rerun run in sandboxes without network and secrets, so the possible damage by a malicious agent is smaller.
-- Permissions of agent are as restricted as possible: edits only to test files, Bash only for the test and typecheck commands, reads everywhere except `.env` files and `.git`, no web access.
-- Don't trust model output, e.g validate programmatically that agent updated only tests. Deletes, renames and symlinks count as violations too (fail closed).
-- Provide agent exact files to investigate so there is less discovery. Each file comes with its diff (cut at 6000 characters; the agent reads the rest itself).
-- Agent decides itself whether to split a task into subagents, e.g. for a big PR or to separate frontend and backend context. Subagents run in the foreground, in parallel: in a non-interactive session a background subagent never finishes.
-- Workflow is divided into two parts, first with read access which runs Agent, second one has write access without any code execution
-- Workflow creates a new PR so user reviews and merge or not. If not happy with the result, a new commit to the PR runs the workflow again and creates another PR.
-- If PR is updated, workflow is started again and creates a new PR if needed.
-- Explicitly tell agent that all text within repository is just data and cannot follow its prompt.
-- Allow to run locally as closly as possible to Github Action.
-- Show coverage diff before and after generating tests
-- The workflow fails when the rerun of the tests fails, when the agent changed anything but tests, or when the agent failed, gave an invalid report, or reported tests it never wrote (e.g. its edits were denied). The rerun covers the whole suite of each area the agent wrote tests in, plus the frontend typecheck.
-- Secrets stay out of the agent's reach: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` removes them from the commands the agent runs, and the sandbox denies `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GH_TOKEN` and the Actions tokens.
-- Verification without the model: claude-ci reruns the tests and measures coverage with `env -i` and bubblewrap (no network, read-only filesystem except the checkout, 600 s timeout per command). It is installed outside the checkout before the agent runs, so the agent cannot change it.
-- Model text never reaches a shell: the agent's report goes through an environment variable, multi-line step outputs use a random delimiter, the base ref is validated before it reaches git.
-- The agent's report is validated with pydantic, even though the action already checks it against the JSON schema; an invalid report fails the run.
-- Model text is sanitised before it is posted: no HTML, no `@` mentions, no table breaks.
-- Cost control: when no changed file needs tests, the agent does not run at all; a new push cancels the run in progress; the job times out after 30 minutes and the agent after 200 turns.
-- Failures stay visible: the PR gets a comment explaining what failed, including how many tool calls Claude Code denied; logs, patch, results and the agent's full transcript (`execution.json`) are kept as artifacts for 14 days, and the report is also in the job summary.
+## Technical decisions and rationale
+- Workflows stay simple and hold no logic, because workflows are hard to test locally.
+- A small Python CLI (claude-ci) holds the logic.
+- The solution has as little code as possible, so there is less to maintain and fewer places for bugs.
+- The agent's commands and the verification rerun run in sandboxes without network and secrets, which limits what a malicious agent can damage.
+- The agent's permissions are as narrow as possible. It edits only test files, runs only the test and typecheck commands in Bash, reads everything except `.env` files and `.git`, and has no web access.
+- The workflow does not trust model output. claude-ci checks that the agent changed only test files, and it counts deletes, renames and symlinks as violations too (fail closed).
+- claude-ci gives the agent the exact files to work on, so the agent spends fewer turns on discovery. Each file comes with its diff, cut at 6000 characters, and the agent reads the rest itself.
+- The agent decides whether to split a task between subagents, e.g. for a big PR or to keep frontend and backend context apart. Subagents run in parallel and in the foreground, because in a non-interactive session a background subagent never finishes.
+- The workflow has two jobs. The first has read access and runs the agent. The second has write access and runs no code from the PR.
+- The workflow opens a new PR with the tests, so a person reviews it and decides whether to merge. To get new tests, push a new commit to the PR, and the workflow opens another tests PR.
+- Every new commit to the PR starts the workflow again, and it opens a new tests PR when there is something to test.
+- The agent's definition says that all text in the repository is data written by the PR's author, and that the agent never follows instructions inside it.
+- The justfile runs the workflow's steps locally, as close to GitHub Actions as possible.
+- The report shows coverage before and after the agent's tests.
+- The workflow fails when the rerun of the tests fails, when the agent changed anything but tests, or when the agent failed, gave an invalid report, or reported tests it never wrote (e.g. because the permissions denied its edits). The rerun covers the whole suite of each area the agent wrote tests in, plus the frontend typecheck.
+- The agent cannot reach secrets. `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` removes them from the commands the agent runs, and the sandbox denies `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `GH_TOKEN` and the Actions tokens.
+- claude-ci verifies the tests without the model. It reruns the tests and measures coverage with `env -i` and bubblewrap, with no network, a read-only filesystem except the checkout, and a 600 s timeout per command. The workflow installs claude-ci outside the checkout before the agent runs, so the agent cannot change it.
+- Model text never reaches a shell. The agent's report goes through an environment variable, multi-line step outputs use a random delimiter, and claude-ci validates the base ref before passing it to git.
+- claude-ci validates the agent's report with pydantic, even though the action already checks it against the JSON schema. An invalid report fails the run.
+- claude-ci cleans model text before the workflow posts it, removing HTML and `@` mentions and escaping table separators.
+- The workflow keeps cost down. When no changed file needs tests, the agent does not run at all. A new push cancels the run in progress. The job times out after 30 minutes and the agent after 200 turns.
+- Failures stay visible. The PR gets a comment that explains what failed, including how many tool calls Claude Code denied. The run keeps logs, the patch, the results and the agent's full transcript (`execution.json`) as artifacts for 14 days, and the job summary has the report too.
 
 
-## Prerequisites and how to run workflow on Github Actions
-- Create environment `CI` and add secret `ANTHROPIC_API_KEY` to it.
-  `Settings -> Environments`
-- Optionally set repository variable `CLAUDE_MODEL` (default `claude-haiku-5-5`).
-  `Settings -> Secrets and variables -> Actions -> Variables`
-- To run a PR on Sonnet instead, add the label `sonnet` to it (create it once: `gh label create sonnet`). Adding the label starts a run; the tests PR's branch and title name the model, so both models can be compared on the same commit.
-- Allow GitHub Actions to create and approve pull requests
-  `Settings -> Actions -> General`
-- Workflow runs automatically on every pull request from a branch of this repository (not from forks).
-- Workflow will rerun on new commits to the PR or synchronization.
+## Prerequisites and how to run the workflow on GitHub Actions
+- Create the environment `CI` and add the secret `ANTHROPIC_API_KEY` to it.
+  `Settings > Environments`
+- Optionally set the repository variable `CLAUDE_MODEL` (default `claude-haiku-5-5`).
+  `Settings > Secrets and variables > Actions > Variables`
+- To run a PR on Sonnet instead, add the label `sonnet` to it. Create the label once with `gh label create sonnet`. Adding the label starts a run. The tests PR's branch and title name the model, so you can compare both models on the same commit.
+- Allow GitHub Actions to create and approve pull requests.
+  `Settings > Actions > General`
+- The workflow runs on every pull request from a branch of this repository, not from forks.
+- The workflow runs again on every new commit to the PR.
 
-## Prerequisites and how to run workflow locally
-Workflow can be reproduced locally except creating a PR and comment.
-It can be run as many times as required.
-- Installed just, uv, Node/npm, jq, bubblewrap, socat and claude (logged in)
-- Installed backend and frontend deps (`just ci-setup`)
-- To run all steps `just ci`
-- To run individual steps investigate `justfile`
+## Prerequisites and how to run the workflow locally
+The justfile reproduces the workflow locally, except for opening the tests PR and posting the comment.
+You can run it as many times as you need.
+- Install just, uv, Node and npm, jq, bubblewrap, socat and claude (logged in).
+- Install the backend and frontend dependencies with `just ci-setup`.
+- Run all steps with `just ci`.
+- See the `justfile` for the individual steps.
 
 
 ## Solution
-- Workflow is defined in `.github/workflows/pr-test-claude.yml`
-- Custom agent `unit-test-writer` is defined in `.github/claude-test-agent/agents/unit-test-writer.md` (role, rules, steps, when to split work into subagents).
-  `.github/claude-test-agent/` is a Claude Code plugin (`taskly-test-agent`): Claude Code runs with `--plugin-dir .github/claude-test-agent --agent taskly-test-agent:unit-test-writer`; when it decides a PR is too big, it dispatches `taskly-test-agent:unit-test-writer` subagents, so every slice follows the same rules.
-  It is not copied into `.claude/`, because claude-code-action replaces `.claude/` with the copy from `main` (PR head is untrusted).
-- The prompt is only the task generated by claude-ci: exact files to investigate, their diffs and test paths.
-- All agent skills are defined in `.github/claude-test-agent/skills/` and come with the plugin (`taskly-test-agent:test-scope` etc.)
-- Settings for Claude Agent Harness `.github/claude-test-agent/settings.json`
-- Report schema for agent `.github/claude-test-agent/report.schema.json`
-- There are three skills.
-Loading the skills is an instruction in the agent's definition, not enforced; `skills_used` in the report is the agent's own claim.
-* `test-scope` - loaded at the beginning when there are changes to help agent decide what to do about each changed file that is not skipped.
-* `backend-unit-tests` - loaded before any backend test is written or updated.
-* `frontend-unit-tests` - loaded before any frontend test is written or updated.
+- The workflow is `.github/workflows/pr-test-claude.yml`.
+- `.github/claude-test-agent/agents/unit-test-writer.md` defines the custom agent `unit-test-writer`: its role, rules and steps, and when to split work between subagents.
+  `.github/claude-test-agent/` is a Claude Code plugin named `taskly-test-agent`. Claude Code runs with `--plugin-dir .github/claude-test-agent --agent taskly-test-agent:unit-test-writer`. When the agent decides a PR is too big, it dispatches `taskly-test-agent:unit-test-writer` subagents, so every slice follows the same rules.
+  The workflow does not copy the agent into `.claude/`, because claude-code-action replaces `.claude/` with the copy from `main` (it treats the PR head as untrusted).
+- The prompt is only the task that claude-ci generates: the exact files to work on, their diffs and their test paths.
+- `.github/claude-test-agent/skills/` holds the agent's skills, and they come with the plugin (`taskly-test-agent:test-scope` and so on).
+- `.github/claude-test-agent/settings.json` holds the Claude Code settings.
+- `.github/claude-test-agent/report.schema.json` is the schema of the agent's report.
 
-## Steps of workflow
+There are three skills. The agent's definition tells the agent to load them, but nothing enforces it, and `skills_used` in the report is the agent's own claim.
+* `test-scope`, loaded first when there are changes, helps the agent decide what to do with each changed file the plan did not skip.
+* `backend-unit-tests`, loaded before the agent writes or updates any backend test.
+* `frontend-unit-tests`, loaded before the agent writes or updates any frontend test.
+
+## Steps of the workflow
 ### Generate (read access)
 1. Prepare directories
-2. Checkout the PR's head commit
-3. Setup Python environment
+2. Check out the PR's head commit
+3. Set up Python
 4. Install claude-ci
-5. Generate prompt by claude-ci
+5. Generate the prompt with claude-ci
 
-Steps 6-12 run only when a changed file needs tests:
+Steps 6 to 12 run only when a changed file needs tests.
 
-6. Install bubblewrap for sandboxed environment
-7. Setup Node environment
-8. Install frontend and backend dependencies
-9. Run coverage before by claude-ci
-10. Run Agent (`unit-test-writer`)
-11. Verify generated tests by claude-ci
-12. Run coverage after by claude-ci
-13. Prepare PR comment
+6. Install bubblewrap for the sandbox
+7. Set up Node
+8. Install the frontend and backend dependencies
+9. Measure coverage before, with claude-ci
+10. Run the agent (`unit-test-writer`)
+11. Verify the generated tests with claude-ci
+12. Measure coverage after, with claude-ci
+13. Prepare the PR comment
 14. Upload artifacts
-15. Fail the job when tests fail, the agent changed something other than tests, or the agent failed or wrote none of the tests it reported
+15. Fail the job when tests fail, when the agent changed something other than tests, or when the agent failed or wrote none of the tests it reported
 ### Publish (write access)
 16. Download artifacts
-17. Checkout the PR's head commit
-18. Open new PR with changes
-19. Post comment on base PR
+17. Check out the PR's head commit
+18. Open a new PR with the tests
+19. Post a comment on the source PR
 
 
 ## What to extend
-- Parallel run of different models.
-- Agentic review of automatic generated PR.
+- Run different models in parallel.
+- Add an agent that reviews the generated tests PR.
 
 ## Example run
 
-PR [#11](https://github.com/Uszczi/taskly-app/pull/11) adds a task summary and clearing of completed tasks: 15 changed files in the backend and frontend.
-The workflow ran on the same commit (`7653795`) twice, once per model, and each run opened its own tests PR:
+PR [#11](https://github.com/Uszczi/taskly-app/pull/11) adds a task summary and clearing of completed tasks, with 15 changed files in the backend and frontend.
+The workflow ran twice on the same commit (`7653795`), once per model, and each run opened its own tests PR.
 
 | | Haiku | Sonnet |
 |---|---|---|
 | Tests PR | [#13](https://github.com/Uszczi/taskly-app/pull/13) | [#12](https://github.com/Uszczi/taskly-app/pull/12) |
 | Run | [39939245900](https://github.com/Uszczi/taskly-app/actions/runs/39939245900) | [39939317464](https://github.com/Uszczi/taskly-app/actions/runs/39939317464) |
-| Status | ✅ ok | ✅ ok |
+| Status | ok | ok |
 | Tests added | 43 in 14 files | 24 in 13 files |
 | Rerun by verify | backend 34 passed, frontend 49 passed, typecheck clean | backend 28 passed, frontend 37 passed, typecheck clean |
-| Backend coverage | 43.9% → 49.2% | 43.9% → 49.7% |
-| Frontend coverage | 39.8% → 66.3% | 39.8% → 66.3% |
+| Backend coverage | 43.9% to 49.2% | 43.9% to 49.7% |
+| Frontend coverage | 39.8% to 66.3% | 39.8% to 66.3% |
 | Cost, turns | $0.037, 62 turns | $0.31, 42 turns |
 | Denied tool calls | 2 | 1 |
 
-**Agent's decisions** (the same in both runs): 12 files in scope.
-- `add` for the new files: `stats.py`, `TodoSummary.tsx` and the five hooks.
-- `update` for the files that already had tests: `repository.py`, `router.py`, `TodosPage.tsx`, `api/todos.ts`, `utils/todos.ts`.
-- Not tested, excluded from coverage by the plan: `schemas.py`, `queryKeys.ts`, `types.ts`.
-- Shared test code was written once: a query client helper in `frontend/src/test/` (both runs) and a stats fixture (Haiku).
+**Agent's decisions.** Both runs made the same decisions for the 12 files in scope.
+- `add` for the new files `stats.py`, `TodoSummary.tsx` and the five hooks.
+- `update` for the files that already had tests: `repository.py`, `router.py`, `TodosPage.tsx`, `api/todos.ts` and `utils/todos.ts`.
+- No tests for `schemas.py`, `queryKeys.ts` and `types.ts`, which the plan skipped because coverage excludes them.
+- One copy of shared test code: a query client helper in `frontend/src/test/` in both runs, and a stats fixture in the Haiku run.
 
-**Skills used**: `test-scope`, `backend-unit-tests` and `frontend-unit-tests` in both runs.
+**Skills used.** Both runs loaded `test-scope`, `backend-unit-tests` and `frontend-unit-tests`.
 
-**Subagents**: none; the agent did the 12 files alone in both runs.
+**Subagents.** Neither run used subagents; the agent did all 12 files itself.
 
-**Denied tool calls**: the agent tried to write files through Bash (`cat > …`, `cd … && for …`). The permissions refused them, and the agent used Edit/Write instead.
+**Denied tool calls.** The agent tried to write files through Bash (`cat > ...`, `cd ... && for ...`). The permissions refused those calls, and the agent used Edit and Write instead.
 
-**Comparison**: both models covered every changed file, reached the same coverage and passed verification. Haiku wrote more, narrower tests and listed what it could not pin (e.g. the real database rowcount, the `date.today()` default) under *Needs your attention*; Sonnet wrote fewer, broader tests at about 8× the cost.
+**Comparison.** Both models covered every changed file, reached the same coverage and passed verification. Haiku wrote more, narrower tests and listed under *Needs your attention* what it could not pin, such as the rowcount on a real database and the `date.today()` default. Sonnet wrote fewer, broader tests at about 8 times the cost.
 
-**Test style**: the generated tests follow the existing ones: plain `test_…` functions and the shared fixtures in the backend; `it(...)` blocks, `todoFixture`, the design-system mock, `userEvent` and role queries in the frontend; no `any`. Two small differences showed up, and the skills were updated from them:
-- Haiku named backend tests after the function (`test_compute_stats_…`) instead of the behavior; `backend-unit-tests` now says the name is the behavior.
-- Both built the same stats object inline in several files (Haiku added a fixture but did not use it everywhere); `frontend-unit-tests` now says an object several tests build gets one fixture in `src/test/`.
+**Test style.** The generated tests follow the existing ones. The backend tests are plain `test_...` functions that use the shared fixtures. The frontend tests use `it(...)` blocks, `todoFixture`, the design-system mock, `userEvent` and role queries, and no `any`. Two small differences came up, and I updated the skills because of them.
+- Haiku named backend tests after the function (`test_compute_stats_...`) instead of the behavior. `backend-unit-tests` now says the name is the behavior.
+- Both runs built the same stats object inline in several files, and Haiku added a fixture but did not use it everywhere. `frontend-unit-tests` now says that an object several tests build gets one fixture in `src/test/`.
 
 
 ## Assumptions
-- PR authors are trusted, the workflow runs only for branches of this repository.
-- A human reviews every tests PR and decides whether to merge it, nothing is merged automatically.
+- PR authors are trusted. The workflow runs only for branches of this repository.
+- A person reviews every tests PR and decides whether to merge it. Nothing merges automatically.
 - The existing test suites pass on the PR's base, since verify reruns the whole suite of each area the agent wrote tests in.
-- Unit tests only: `backend/app` with pytest, `frontend/src` with vitest, following the repository's layout (backend tests mirror the source path under `backend/tests/` with a `test_` prefix, frontend tests sit next to the source).
-- Files that need no tests are the ones excluded from coverage (`backend/pyproject.toml`, `frontend/vite.config.ts`); `skip-rules.json` mirrors them.
-- Tests run offline: everything they would reach over the network is mocked.
+- The agent writes unit tests only, for `backend/app` with pytest and `frontend/src` with vitest. It follows the repository's layout: backend tests mirror the source path under `backend/tests/` with a `test_` prefix, and frontend tests sit next to the source.
+- The files that need no tests are the ones coverage excludes (`backend/pyproject.toml`, `frontend/vite.config.ts`), and `skip-rules.json` mirrors them.
+- Tests run offline, and they mock everything they would reach over the network.
 - CI runs on GitHub-hosted Ubuntu 24.04 runners, where bubblewrap can be installed.
 
-## The solution's limitations
-- Its bounded to Claude.
-- Verify step after test generation requires all tests to pass even ones that were failing before.
-- Agent runs in sandbox without any access to internet or external documentation.
-- PRs need to be closed by hand if not merged, each change to branch might generate new PR when only last one is probably valid.
-- Agent can edit only tests files even if fix for production code is simple.
-- Workflow is highly dependent on model quality.
-- Price and time grow with PR size and are limited only by amount of agent turns and timeout.
-- Running workflow requires bubblewrap for sandboxed environment (Doesn't work on macOS).
-- Duplication of test commands definition: `settings.json`, both test skills, `verify.py` and `coverage.py`.
+## Limitations
+- It works only with Claude.
+- After the agent writes tests, verify requires every test in the area to pass, including tests that were already failing.
+- The agent runs in a sandbox without internet access or external documentation.
+- Someone has to close unmerged tests PRs by hand. Every commit to the branch can open a new tests PR, and usually only the last one is useful.
+- The agent can edit only test files, even when the fix in production code is simple.
+- The results depend heavily on the model.
+- Price and time grow with the size of the PR. Only the turn limit and the timeout cap them.
+- The workflow needs bubblewrap for the sandbox, so it does not run on macOS.
+- The test commands are defined in several places: `settings.json`, both test skills, `verify.py` and `coverage.py`.
 
 ## Changes before production
